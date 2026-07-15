@@ -137,8 +137,7 @@ class SimpleProtossBot(BotAI):
 
      for nexus in self.townhalls.ready:
         if nexus.is_idle:
-            cmd = nexus.train(U.PROBE)   # creates the command
-            await self.do(cmd)           # ✅ actually sends it
+            nexus.train(U.PROBE)
             print(f"[{self.time:.1f}] SENT: Probe at Nexus {nexus.tag}")
             return
 
@@ -169,7 +168,7 @@ class SimpleProtossBot(BotAI):
      if self.units(U.GATEWAY).ready.exists:
         for gateway in self.units(U.GATEWAY).ready.idle:
             if self.can_afford(U.ZEALOT) and self.units(U.ZEALOT).amount < zealot_goal:
-                await self.do(gateway.train(U.ZEALOT))
+                gateway.train(U.ZEALOT)
 
     async def split_zealots(self):
      zealots = self.units(U.ZEALOT)
@@ -182,13 +181,13 @@ class SimpleProtossBot(BotAI):
 
         # Defenders hold position near main base
         for zealot in defenders:
-            await self.do(zealot.move(self.start_location))
+            zealot.move(self.start_location)
 
         # Attackers move toward enemy base
         if self.enemy_start_locations:
             target = self.enemy_start_locations[0]
             for zealot in attackers:
-                await self.do(zealot.attack(target))
+                zealot.attack(target)
 
     async def on_step(self, iteration: int):
         await self.build_pylons()

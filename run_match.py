@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib.util
 import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -53,6 +55,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="watch at normal speed; use --no-realtime for a fast simulation",
     )
     parser.add_argument(
+        "--spectate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="open a fullscreen, full-map watch view (default: enabled)",
+    )
+    parser.add_argument(
         "--game-time-limit",
         type=float,
         metavar="SECONDS",
@@ -87,13 +95,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def import_sc2() -> tuple[Any, Any, Any, Any, Any, ModuleType, Any]:
+def import_sc2() -> tuple[Any, Any, Any, Any, ModuleType, Any]:
     try:
         from sc2 import maps
         from sc2 import paths as sc2_paths
         from sc2.bot_ai import BotAI
         from sc2.data import Race, Result
-        from sc2.main import run_game
         from sc2.player import Bot
     except Exception as exc:
         raise MatchSetupError(
@@ -101,7 +108,7 @@ def import_sc2() -> tuple[Any, Any, Any, Any, Any, ModuleType, Any]:
             f"Original error: {exc}"
         ) from exc
 
-    return maps, BotAI, Race, Result, run_game, sc2_paths, Bot
+    return maps, BotAI, Race, Result, sc2_paths, Bot
 
 
 def read_sc2_path(env_file: Path) -> Path | None:
@@ -171,6 +178,62 @@ def find_sc2_install(sc2_paths: ModuleType) -> tuple[Path, Path]:
     )
 
 
+def validate_sc2_executable(executable: Path) -> None:
+    """Catch missing, malformed, or corrupted game executables before launch."""
+    try:
+        with executable.open("rb") as executable_file:
+            header = executable_file.read(2)
+    except OSError as exc:
+        raise MatchSetupError(
+            f"StarCraft II's executable cannot be read: {executable} ({exc})"
+        ) from exc
+
+    if header != b"MZ":
+        raise MatchSetupError(
+            f"StarCraft II's executable is not a valid Windows program: {executable}"
+        )
+
+    if os.name != "nt":
+        return
+
+    signature_environment = os.environ.copy()
+    signature_environment["SC2_EXE_TO_CHECK"] = str(executable)
+    try:
+        signature_check = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "(Get-AuthenticodeSignature -LiteralPath "
+                "$env:SC2_EXE_TO_CHECK).Status.ToString()",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+            env=signature_environment,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # Signature checking is an extra Windows diagnostic. Launching can still
+        # proceed when PowerShell is unavailable.
+        return
+
+    signature_status = signature_check.stdout.strip()
+    if signature_status == "HashMismatch":
+        raise MatchSetupError(
+            "The StarCraft II executable is corrupted: its Blizzard digital "
+            "signature does not match the file. In Battle.net, select StarCraft II, "
+            "open the menu beside Play, and run Scan and Repair. If that does not "
+            "replace the file, reinstall StarCraft II."
+        )
+    if signature_status and signature_status != "Valid":
+        raise MatchSetupError(
+            "Windows could not validate the StarCraft II executable "
+            f"({signature_status}): {executable}"
+        )
+
+
 def load_bot_class(spec: BotSpec, bot_ai_class: type) -> type:
     if not spec.source_file.is_file():
         raise MatchSetupError(
@@ -231,10 +294,97 @@ def describe_result(results: Any, result_enum: Any) -> str:
     return f"Match finished without a winner ({labels})"
 
 
+def run_bot_match(
+    map_settings: Any,
+    players: list[Any],
+    run_options: dict[str, Any],
+    result_enum: Any,
+) -> list[Any]:
+    """Run two local bots while preserving their real startup exceptions."""
+    from aiohttp import ClientConnectionResetError
+    from sc2.client import Client
+    from sc2.main import _host_game, _join_game
+    from sc2.portconfig import Portconfig
+    from sc2.protocol import ConnectionAlreadyClosedError
+
+    host_only_options = {
+        "save_replay_as",
+        "rgb_render_config",
+        "random_seed",
+        "disable_fog",
+    }
+    join_options = {
+        key: value
+        for key, value in run_options.items()
+        if key not in host_only_options
+    }
+    portconfig = Portconfig()
+
+    original_observation = Client.observation
+
+    async def safe_observation(client: Any, game_loop: int | None = None) -> Any:
+        # At the instant a realtime match ends, SC2 can report a sentinel loop
+        # close to the uint32 maximum. BurnySC2 adds its normal step and asks
+        # protobuf for loop 2**32, which raises before it can read the result.
+        if game_loop is not None and game_loop > 0xFFFFFFFF:
+            game_loop = None
+        return await original_observation(client, game_loop)
+
+    Client.observation = safe_observation
+
+    async def run_clients() -> list[Any]:
+        return await asyncio.gather(
+            _host_game(
+                map_settings,
+                players,
+                **run_options,
+                portconfig=portconfig,
+            ),
+            _join_game(players, **join_options, portconfig=portconfig),
+            return_exceptions=True,
+        )
+
+    try:
+        results = asyncio.run(run_clients())
+    finally:
+        Client.observation = original_observation
+        portconfig.clean()
+
+    bot_results = results[:2]
+    disconnect_errors = (ClientConnectionResetError, ConnectionAlreadyClosedError)
+    for index, result in enumerate(bot_results):
+        ended_at_protocol_boundary = (
+            isinstance(result, ValueError) and "4294967296" in str(result)
+        )
+        if not isinstance(result, disconnect_errors) and not ended_at_protocol_boundary:
+            continue
+        other_result = bot_results[1 - index]
+        if other_result == result_enum.Victory:
+            bot_results[index] = result_enum.Defeat
+        elif other_result == result_enum.Defeat:
+            bot_results[index] = result_enum.Victory
+        elif other_result == result_enum.Tie:
+            bot_results[index] = result_enum.Tie
+
+    failures = [
+        f"{spec.display_name}: {type(result).__name__}: {result}"
+        for spec, result in zip(BOT_SPECS, bot_results)
+        if isinstance(result, BaseException)
+    ]
+    if failures:
+        raise MatchSetupError(
+            "StarCraft II could not run both players:\n  - " + "\n  - ".join(failures)
+        )
+    if not all(isinstance(result, result_enum) for result in bot_results):
+        raise MatchSetupError(f"StarCraft II returned unexpected results: {bot_results}")
+    return bot_results
+
+
 def run(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    maps, BotAI, Race, Result, run_game, sc2_paths, Bot = import_sc2()
+    maps, BotAI, Race, Result, sc2_paths, Bot = import_sc2()
     install_path, executable = find_sc2_install(sc2_paths)
+    validate_sc2_executable(executable)
 
     try:
         map_settings = maps.get(args.map)
@@ -245,8 +395,13 @@ def run(argv: list[str] | None = None) -> int:
 
     bot_classes = [load_bot_class(spec, BotAI) for spec in BOT_SPECS]
     players = [
-        Bot(getattr(Race, spec.race_name), bot_class(), name=spec.display_name)
-        for spec, bot_class in zip(BOT_SPECS, bot_classes)
+        Bot(
+            getattr(Race, spec.race_name),
+            bot_class(),
+            name=spec.display_name,
+            fullscreen=args.spectate and index == 0,
+        )
+        for index, (spec, bot_class) in enumerate(zip(BOT_SPECS, bot_classes))
     ]
 
     print(f"StarCraft II: {executable}")
@@ -256,6 +411,10 @@ def run(argv: list[str] | None = None) -> int:
         + " vs ".join(
             f"{spec.display_name} ({spec.race_name})" for spec in BOT_SPECS
         )
+    )
+    print(
+        "Live watch view: "
+        + ("fullscreen with fog disabled" if args.spectate else "disabled")
     )
 
     if args.check:
@@ -268,6 +427,8 @@ def run(argv: list[str] | None = None) -> int:
         print(f"Replay: {match_replay}")
 
     run_options: dict[str, Any] = {"realtime": args.realtime}
+    if args.spectate:
+        run_options["disable_fog"] = True
     if match_replay is not None:
         run_options["save_replay_as"] = str(match_replay)
     if args.game_time_limit is not None:
@@ -275,7 +436,7 @@ def run(argv: list[str] | None = None) -> int:
     if args.random_seed is not None:
         run_options["random_seed"] = args.random_seed
 
-    results = run_game(map_settings, players, **run_options)
+    results = run_bot_match(map_settings, players, run_options, Result)
     print(describe_result(results, Result))
     return 0
 
