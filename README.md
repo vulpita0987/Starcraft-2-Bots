@@ -58,7 +58,9 @@ Useful optional commands:
 .\run_match.bat --no-replay
 ```
 
-If StarCraft II is installed somewhere unusual, create an untracked `.env.local` file containing its root folder:
+The launcher automatically checks both the normal C-drive location and
+`D:\StarCraft II`. If StarCraft II is installed somewhere else, create an
+untracked `.env.local` file containing its root folder:
 
 ```text
 SC2PATH=D:\Games\StarCraft II

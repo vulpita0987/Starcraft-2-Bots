@@ -17,6 +17,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_MAP = "AbyssalReefLE"
+COMMON_SC2_INSTALLS = (Path("D:/StarCraft II"),)
 
 
 class MatchSetupError(RuntimeError):
@@ -149,6 +150,9 @@ def find_sc2_install(sc2_paths: ModuleType) -> tuple[Path, Path]:
     default_path = sc2_paths.BASEDIR.get(sc2_paths.PF)
     if default_path:
         candidates.append(("the normal install location", Path(default_path).expanduser()))
+
+    for common_path in COMMON_SC2_INSTALLS:
+        candidates.append(("a common alternate install location", common_path))
 
     checked: list[str] = []
     seen: set[str] = set()
