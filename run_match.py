@@ -58,7 +58,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--spectate",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="open a fullscreen, full-map watch view (default: enabled)",
     )
     parser.add_argument(
