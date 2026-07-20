@@ -52,7 +52,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--realtime",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="watch at normal speed; use --no-realtime for a fast simulation",
     )
     parser.add_argument(
