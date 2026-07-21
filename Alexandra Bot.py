@@ -96,3 +96,35 @@ if __name__ == "__main__":
         [Bot(Race.Protoss, SimpleProtossBot()), Computer(Race.Terran, Difficulty.Easy)],
         realtime=True,
     )
+
+
+# =============================================================================
+# OWAIN'S COMMENT - SUGGESTED FIX (COMMENTED OUT, SO THIS DOES NOT RUN)
+# =============================================================================
+# Alexandra's active code above is unchanged. BurnySC2 7 separates mobile units
+# from buildings. Pylons and Assimilators therefore need to be checked through
+# self.structures instead of self.units. Otherwise the completed Pylon count can
+# remain zero and the bot can keep ordering another Pylon.
+#
+# Suggested replacement for build_initial_pylon:
+#
+# async def build_initial_pylon(self):
+#     if (
+#         self.structures(U.PYLON).amount == 0
+#         and self.can_afford(U.PYLON)
+#         and not self.already_pending(U.PYLON)
+#     ):
+#         choke = self.main_base_ramp.top_center
+#         safe_pos = choke.towards(self.start_location, distance=3)
+#         await self.build(U.PYLON, near=safe_pos)
+#
+# Suggested replacement inside fill_gas:
+#
+# for assim in self.structures(U.ASSIMILATOR).ready:
+#     while (
+#         assim.assigned_harvesters < assim.ideal_harvesters
+#         and self.workers.idle.exists
+#     ):
+#         worker = self.workers.idle.random
+#         worker.gather(assim)
+# =============================================================================

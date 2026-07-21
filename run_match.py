@@ -36,7 +36,7 @@ class BotSpec:
 # Strategy code remains in the two original files and is not duplicated here.
 BOT_SPECS = (
     BotSpec("Owain Bot", "Zerg", ROOT / "Owain 1.py", "SimpleZergBot"),
-    BotSpec("Alexandra Bot", "Protoss", ROOT / "Version2.py", "SimpleProtossBot"),
+    BotSpec("Alexandra Bot", "Protoss", ROOT / "Alexandra Bot.py", "SimpleProtossBot"),
 )
 
 

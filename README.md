@@ -5,9 +5,9 @@ This repository can run the two existing Python bots directly against each other
 | Player | Bot code | Race |
 | --- | --- | --- |
 | Owain Bot | `Owain 1.py` (`SimpleZergBot`) | Zerg |
-| Alexandra Bot | `Version2.py` (`SimpleProtossBot`) | Protoss |
+| Alexandra Bot | `Alexandra Bot.py` (`SimpleProtossBot`) | Protoss |
 
-The bots' strategy code has not been moved or changed. `run_match.py` only loads both classes and gives them the two player slots in one StarCraft II game.
+`run_match.py` loads both classes and gives them the two player slots in one StarCraft II game.
 
 ## First-time setup on each computer
 
@@ -79,7 +79,7 @@ the file.
 ## Working together
 
 - Owain edits the `SimpleZergBot` class in `Owain 1.py`.
-- Alexandra edits the `SimpleProtossBot` class in `Version2.py`.
+- Alexandra edits the `SimpleProtossBot` class in `Alexandra Bot.py`.
 - Pull the latest GitHub changes before editing, then commit and push only the intended changes.
 - Do not commit `.venv`, `.env.local`, replays, or Python cache files; they are ignored automatically.
 
