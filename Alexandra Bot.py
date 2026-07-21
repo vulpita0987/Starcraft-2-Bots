@@ -34,16 +34,14 @@ class SimpleProtossBot(BotAI):
 
     
     async def build_initial_pylon(self):
-      # Build the first pylon near the choke, but not blocking the ramp
-      if self.units(U.PYLON).amount == 0 and self.can_afford(U.PYLON) and not self.already_pending(U.PYLON):
-
-        choke = self.main_base_ramp.top_center
-
-        # Move the placement slightly toward your base so it doesn't block the ramp
-        safe_pos = choke.towards(self.start_location, distance=3)
-
-        # Build the pylon at the safe choke position
-        await self.build(U.PYLON, near=safe_pos)
+     if (
+         self.structures(U.PYLON).amount == 0
+         and self.can_afford(U.PYLON)
+         and not self.already_pending(U.PYLON)
+     ):
+         choke = self.main_base_ramp.top_center
+         safe_pos = choke.towards(self.start_location, distance=3)
+         await self.build(U.PYLON, near=safe_pos)
 
 
 
@@ -79,14 +77,32 @@ class SimpleProtossBot(BotAI):
             if minerals:
                 worker.gather(minerals.closest_to(worker))
 
+    # ------ Cannona
+    async def build_choke_cannons(self):
+    # Build up to 5 cannons near the choke point
+     choke = self.main_base_ramp.top_center
+
+    # Stop at 5 cannons
+     if self.units(U.PHOTONCANNON).amount >= 5:
+        return
+
+    # Only requirement: you can afford a cannon
+     if self.can_afford(U.PHOTONCANNON) and not self.already_pending(U.PHOTONCANNON):
+        await self.build(U.PHOTONCANNON, near=choke)
+
+
+
+
+
     # ---------- MAIN LOOP ----------
 
     async def on_step(self, iteration: int):
         await self.build_initial_pylon()
         
         await self.build_workers()
-        await self.fill_gas()
+        #await self.fill_gas()
         await self.handle_idle_workers()
+        await self.build_choke_cannons()
 
 
 # Run the game
@@ -97,7 +113,8 @@ if __name__ == "__main__":
         realtime=True,
     )
 
-
+# Structures  instead of Units - for buildings 
+# Units for Litlle Moving Things
 # =============================================================================
 # OWAIN'S COMMENT - SUGGESTED FIX (COMMENTED OUT, SO THIS DOES NOT RUN)
 # =============================================================================
