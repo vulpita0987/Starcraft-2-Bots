@@ -35,6 +35,20 @@ class SimpleProtossBot(BotAI):
         super().__init__()
         self.zealot_attack_group = []
         self.zealot_defend_group = []
+        self.patrol_points = []
+
+    async def on_start(self):
+     nexus = self.townhalls.first
+     choke = self.main_base_ramp.top_center
+
+    # Patrol points covering your whole base
+     self.patrol_points = [
+        nexus.position + Point2((8, 0)),
+        nexus.position + Point2((-8, 0)),
+        nexus.position + Point2((0, 8)),
+        nexus.position + Point2((0, -8)),
+        choke
+    ]
 
 
     # ---------- PYLONS (MAX 5) ----------
@@ -112,8 +126,13 @@ class SimpleProtossBot(BotAI):
             return
 
         # Let the engine find a valid tile NEAR the safe offset
-        if self.can_afford(U.PHOTONCANNON) and not self.already_pending(U.PHOTONCANNON):
-            await self.build(U.PHOTONCANNON, near=pos)
+     existing = self.structures(U.PHOTONCANNON).amount
+     pending = self.already_pending(U.PHOTONCANNON)
+
+     if existing + pending < 5:
+       if self.can_afford(U.PHOTONCANNON):
+        await self.build(U.PHOTONCANNON, near=pos)
+
 
 
 
@@ -127,8 +146,8 @@ class SimpleProtossBot(BotAI):
 
      nexus = self.townhalls.first
 
-    # Stop once 4 pylons are built
-     if self.structures(U.PYLON).amount >= 4:
+    # Stop once 4 pylons are built (not counting the choke pylon)
+     if self.structures(U.PYLON).amount >= 5:  # 1 choke + 4 corners
         return
 
     # Four simple corner positions around the Nexus
@@ -137,17 +156,19 @@ class SimpleProtossBot(BotAI):
         nexus.position + Point2((-10, 10)),
         nexus.position + Point2((10, -10)),
         nexus.position + Point2((-10, -10)),
-    ]
-
-    # Try each corner until we place 4 pylons
+     ]
+ 
+    # Try each corner until all 4 are placed
      for pos in corner_positions:
-        if self.structures(U.PYLON).amount >= 4:
+        # If we already have 5 pylons total (1 choke + 4 corners), stop
+        if self.structures(U.PYLON).amount >= 5:
             return
 
         if await self.can_place(U.PYLON, pos):
             if self.can_afford(U.PYLON) and not self.already_pending(U.PYLON):
                 await self.build(U.PYLON, near=pos)
-                return
+                # ❌ DO NOT return here — let the loop continue
+
 
 
     async def build_gateway(self):
@@ -156,7 +177,7 @@ class SimpleProtossBot(BotAI):
         return
 
     # Only build 1 Gateway
-     if self.structures(U.GATEWAY).amount >= 1:
+     if self.structures(U.GATEWAY).amount >= 3:
         return
 
      nexus = self.townhalls.first
@@ -197,12 +218,39 @@ class SimpleProtossBot(BotAI):
      if self.can_afford(U.ZEALOT) and gateway.is_idle:
         gateway.train(U.ZEALOT)
 
-    async def patrol_new_zealots(self):
-     for zealot in self.units(U.ZEALOT).idle:
-        # Simple patrol point: circle around your Nexus
-        nexus = self.townhalls.first
-        patrol_point = nexus.position + Point2((5, 0))
-        zealot.attack(patrol_point)
+    async def patrol_and_defend_base(self):
+     zealots = self.units(U.ZEALOT)
+
+     if zealots.amount == 0:
+        return
+
+     nexus = self.townhalls.first
+     choke = self.main_base_ramp.top_center
+
+    # Find any enemy inside your base area (Nexus → choke)
+     threats = self.enemy_units.closer_than(30, nexus.position)
+
+    # If ANY threat exists → all zealots gang up together
+     if threats.exists:
+        target = threats.closest_to(nexus)
+        for z in zealots:
+            z.attack(target)
+        return
+
+    # BEFORE SPLIT: all zealots gather at choke
+     if zealots.amount < 20:
+        for z in zealots.idle:
+            z.attack(choke)
+        return
+
+    # AFTER SPLIT: defenders stay at choke
+     for z in self.zealot_defend_group:
+        if z.is_idle:
+            z.attack(choke)
+
+
+
+
     
     async def split_zealots(self):
      zealots = self.units(U.ZEALOT)
@@ -225,10 +273,6 @@ class SimpleProtossBot(BotAI):
      for z in self.zealot_attack_group:
         z.attack(enemy_base)
 
-    # Defenders stay near your Nexus
-     nexus = self.townhalls.first
-     for z in self.zealot_defend_group:
-        z.attack(nexus.position)
 
     async def build_continuous_zealots(self):
     # Only start continuous production after all 5 cannons exist
@@ -261,6 +305,41 @@ class SimpleProtossBot(BotAI):
      for z in attackers:
         z.attack(enemy_base)
 
+    async def build_supply_pylon(self):
+     if self.supply_left < 4 and self.structures(U.PYLON).amount >= 2:
+        if self.already_pending(U.PYLON) >= 3:
+            return
+
+        if not self.can_afford(U.PYLON):
+            return
+
+        if not self.townhalls.ready.exists:
+            return
+
+        nexus = self.townhalls.first
+
+        # ALL your base structures (correct call)
+        base_structures = self.structures.closer_than(30, nexus.position)
+
+        edge_positions = []
+        for s in base_structures:
+            edge_positions.append(s.position + Point2((4, 0)))
+            edge_positions.append(s.position + Point2((-4, 0)))
+            edge_positions.append(s.position + Point2((0, 4)))
+            edge_positions.append(s.position + Point2((0, -4)))
+
+        choke = self.main_base_ramp.top_center
+        edge_positions.append(choke + Point2((4, 0)))
+        edge_positions.append(choke + Point2((-4, 0)))
+
+        for pos in edge_positions:
+            if await self.can_place(U.PYLON, pos):
+                await self.build(U.PYLON, near=pos)
+                return
+
+
+
+
 
 
     # ---------- MAIN LOOP ----------
@@ -275,11 +354,11 @@ class SimpleProtossBot(BotAI):
         await self.build_gateway()
         await self.build_choke_cannons()
         await self.build_initial_zealots()
-        await self.patrol_new_zealots()
+        await self.patrol_and_defend_base()
         await self.split_zealots()
         await self.build_continuous_zealots()
         await self.manage_zealot_groups()
-
+        await self.build_supply_pylon()
         
         
 
