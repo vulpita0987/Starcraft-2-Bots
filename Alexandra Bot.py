@@ -177,7 +177,7 @@ class SimpleProtossBot(BotAI):
         return
 
     # Only build 1 Gateway
-     if self.structures(U.GATEWAY).amount >= 3:
+     if self.structures(U.GATEWAY).amount >= 1:
         return
 
      nexus = self.townhalls.first
@@ -340,6 +340,87 @@ class SimpleProtossBot(BotAI):
 
 
 
+    async def build_cybercore(self):
+    # Need a Gateway first
+     if not self.structures(U.GATEWAY).ready.exists:
+        return
+
+    # Only build 1 Cybercore
+     if self.structures(U.CYBERNETICSCORE).exists or self.already_pending(U.CYBERNETICSCORE):
+        return
+
+    # Need minerals
+     if not self.can_afford(U.CYBERNETICSCORE):
+        return
+
+     nexus = self.townhalls.first
+
+    # Build near Nexus
+     await self.build(U.CYBERNETICSCORE, near=nexus.position)
+
+
+    async def build_stargate(self):
+    # Need Cybercore first
+     if not self.structures(U.CYBERNETICSCORE).ready.exists:
+        return
+
+     # Only build 1 Stargate
+     if self.structures(U.STARGATE).exists or self.already_pending(U.STARGATE):
+        return
+
+    # Need minerals + gas
+     if not self.can_afford(U.STARGATE):
+        return
+
+     nexus = self.townhalls.first
+
+     await self.build(U.STARGATE, near=nexus.position)
+
+    async def build_fleet_beacon(self):
+    # Need Stargate first
+     if not self.structures(U.STARGATE).ready.exists:
+        return
+
+    # Only build 1 Fleet Beacon
+     if self.structures(U.FLEETBEACON).exists or self.already_pending(U.FLEETBEACON):
+        return
+
+    # Need minerals + gas
+     if not self.can_afford(U.FLEETBEACON):
+        return
+
+     nexus = self.townhalls.first
+
+     await self.build(U.FLEETBEACON, near=nexus.position)
+
+    async def manage_gas_collection(self):
+    # Create 6 new workers
+     for nexus in self.townhalls.ready.idle:
+        if self.can_afford(U.PROBE) and self.supply_left > 0:
+            nexus.train(U.PROBE)
+
+    # Build ONE assimilator per frame on geysers near your base
+     geysers = self.vespene_geyser.closer_than(20, self.townhalls.first.position)
+
+     for geyser in geysers:
+        if not self.structures(U.ASSIMILATOR).closer_than(1, geyser.position).exists:
+            await self.build(U.ASSIMILATOR, near=geyser)
+            return  # <-- THIS FIXES THE CRASH
+
+    # Send workers to collect gas ONLY from finished assimilators
+     for assim in self.structures(U.ASSIMILATOR).ready:
+        for worker in self.workers.idle:
+            worker.gather(assim)
+
+
+
+
+
+
+
+
+
+
 
 
     # ---------- MAIN LOOP ----------
@@ -359,6 +440,11 @@ class SimpleProtossBot(BotAI):
         await self.build_continuous_zealots()
         await self.manage_zealot_groups()
         await self.build_supply_pylon()
+        await self.build_cybercore()
+        await self.build_stargate()
+        await self.build_fleet_beacon()
+        await self.manage_gas_collection() #error
+
         
         
 
