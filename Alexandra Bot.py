@@ -77,20 +77,11 @@ class SimpleProtossBot(BotAI):
                 nexus.train(U.PROBE)
                 return
             
-    async def fill_gas(self):
-        # Step 2: after assimilators exist, fill gas until full saturation (22 workers total)
-        gas_target = 22
 
-        # If we don't have enough workers yet, keep building them
-        if self.workers.amount < gas_target and self.can_afford(U.PROBE) and self.supply_left > 0:
-            for nexus in self.townhalls.ready.idle:
-                nexus.train(U.PROBE)
 
-        # Step 3: assign idle workers to gas
-        for assim in self.units(U.ASSIMILATOR).ready:
-            while assim.assigned_harvesters < assim.ideal_harvesters and self.workers.idle.exists:
-                worker = self.workers.idle.random
-                worker.gather(assim)
+
+
+
 
     async def handle_idle_workers(self):
          for worker in self.workers.idle:
@@ -393,24 +384,28 @@ class SimpleProtossBot(BotAI):
 
      await self.build(U.FLEETBEACON, near=nexus.position)
 
-    async def manage_gas_collection(self):
-    # Create 6 new workers
-     for nexus in self.townhalls.ready.idle:
-        if self.can_afford(U.PROBE) and self.supply_left > 0:
-            nexus.train(U.PROBE)
+  
 
-    # Build ONE assimilator per frame on geysers near your base
-     geysers = self.vespene_geyser.closer_than(20, self.townhalls.first.position)
 
+    async def build_assimilators_safe(self):
+    # Must have a Nexus
+     if not self.townhalls.ready.exists:
+        return
+
+     nexus = self.townhalls.first
+
+    # CORRECT geyser selection for BurnySC2
+     geysers = self.vespene_geyser.closer_than(40, nexus.position)
+
+    # Build ONE assimilator per frame
      for geyser in geysers:
+        # If no assimilator exists here, build one
         if not self.structures(U.ASSIMILATOR).closer_than(1, geyser.position).exists:
-            await self.build(U.ASSIMILATOR, near=geyser)
-            return  # <-- THIS FIXES THE CRASH
+            worker = self.select_build_worker(geyser.position)
+            if worker:
+                worker.build(U.ASSIMILATOR, geyser)
+            return  # absolutely required
 
-    # Send workers to collect gas ONLY from finished assimilators
-     for assim in self.structures(U.ASSIMILATOR).ready:
-        for worker in self.workers.idle:
-            worker.gather(assim)
 
 
 
@@ -429,7 +424,6 @@ class SimpleProtossBot(BotAI):
         await self.build_initial_pylon()
         await self.build_corner_pylons()
         await self.build_workers()
-        #await self.fill_gas()
         await self.handle_idle_workers()
         await self.build_forge()
         await self.build_gateway()
@@ -443,7 +437,10 @@ class SimpleProtossBot(BotAI):
         await self.build_cybercore()
         await self.build_stargate()
         await self.build_fleet_beacon()
-        await self.manage_gas_collection() #error
+
+        #await self.build_assimilators_safe()
+     
+       
 
         
         
