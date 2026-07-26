@@ -83,7 +83,7 @@ class SimpleProtossBot(BotAI):
 
 
 
-    async def handle_idle_workers(self):
+    async def handle_idle_workers_old(self):
         try:
             idle_workers = self.workers.idle
         except KeyError:
@@ -93,6 +93,43 @@ class SimpleProtossBot(BotAI):
             minerals = self.mineral_field.closer_than(20, self.start_location)
             if minerals:
                 worker.gather(minerals.closest_to(worker))
+
+    async def handle_idle_workers(self):
+    # Only run allocation if at least one worker is idle
+     if not self.workers.idle.exists:
+        return
+
+    # --- Step 1: Keep 16 workers on minerals ---
+     minerals = self.mineral_field.closer_than(20, self.start_location)
+     if minerals:
+        mineral_spots = minerals
+
+    # Count how many workers are already mining
+     mining_workers = []
+     for w in self.workers:
+        if w.is_collecting and w.order_target in {m.tag for m in mineral_spots}:
+            mining_workers.append(w)
+
+    # Assign idle workers to minerals until we reach 16
+     needed_mineral_workers = 16 - len(mining_workers)
+     if needed_mineral_workers > 0:
+        for w in self.workers.idle[:needed_mineral_workers]:
+            w.gather(mineral_spots.closest_to(w))
+
+    # --- Step 2: Assign 3 workers per assimilator ---
+     for assim in self.structures(U.ASSIMILATOR).ready:
+        # Count workers already gathering gas from this assimilator
+        gas_workers = []
+        for w in self.workers:
+            if w.is_collecting and w.order_target == assim.tag:
+                gas_workers.append(w)
+
+        # Assign idle workers until we reach 3
+        needed_gas_workers = 3 - len(gas_workers)
+        if needed_gas_workers > 0:
+            for w in self.workers.idle[:needed_gas_workers]:
+                w.gather(assim)
+
 
     # ------ Cannona
     async def build_choke_cannons(self):
@@ -223,26 +260,21 @@ class SimpleProtossBot(BotAI):
      nexus = self.townhalls.first
      choke = self.main_base_ramp.top_center
 
-    # Find any enemy inside your base area (Nexus → choke)
+    # 1. Detect any enemy near the Nexus (base defense zone)
      threats = self.enemy_units.closer_than(30, nexus.position)
 
-    # If ANY threat exists → all zealots gang up together
+    # 2. If ANY enemy is inside the base → all zealots attack together
      if threats.exists:
         target = threats.closest_to(nexus)
         for z in zealots:
             z.attack(target)
         return
 
-    # BEFORE SPLIT: all zealots gather at choke
-     if zealots.amount < 20:
-        for z in zealots.idle:
-            z.attack(choke)
-        return
-
-    # AFTER SPLIT: defenders stay at choke
-     for z in self.zealot_defend_group:
+    # 3. No threats → ALL zealots move to the choke and hold position
+     for z in zealots:
         if z.is_idle:
             z.attack(choke)
+
 
 
 
@@ -426,6 +458,45 @@ class SimpleProtossBot(BotAI):
 
 
 
+    async def manage_carriers(self):
+    # --- 1. Build Carriers if Stargate exists ---
+     if self.structures(U.STARGATE).ready.exists:
+        stargate = self.structures(U.STARGATE).ready.random
+
+        if stargate.is_idle and self.can_afford(U.CARRIER) and self.supply_left >= 6:
+            stargate.train(U.CARRIER)
+
+    # --- 2. Get all carriers ---
+     carriers = self.units(U.CARRIER)
+     if carriers.amount < 3:
+        return  # wait until we have enough to attack together
+
+    # --- 3. Determine target ---
+    # Priority 1: Any visible enemy building
+     if self.enemy_structures.exists:
+        target = self.enemy_structures.closest_to(carriers.center).position
+
+     else:
+        # Priority 2: Sweep expansion locations one by one
+        if not hasattr(self, "carrier_sweep_index"):
+            self.carrier_sweep_index = 0
+
+        # All known expansion locations
+        expansions = self.expansion_locations_list
+
+        # Wrap around if we reach the end
+        if self.carrier_sweep_index >= len(expansions):
+            self.carrier_sweep_index = 0
+
+        target = expansions[self.carrier_sweep_index]
+        self.carrier_sweep_index += 1
+
+    # --- 4. Attack with all carriers together ---
+     for c in carriers:
+        c.attack(target)
+
+     
+
 
 
 
@@ -450,8 +521,8 @@ class SimpleProtossBot(BotAI):
         await self.build_cybercore()
         await self.build_stargate()
         await self.build_fleet_beacon()
-
         await self.build_assimilators_safe()
+        await self.manage_carriers()
      
        
 
