@@ -68,11 +68,11 @@ class SimpleProtossBot(BotAI):
 
    # ------WORKERS------
     async def build_workers(self):
-        # Step 1: mineral saturation only (16 workers)
-        mineral_target = 16
+        # OWAIN'S COMMENT: Build 16 mineral workers plus 6 gas workers.
+        worker_target = 22
 
-        # Build probes until we reach 16 workers
-        if self.workers.amount < mineral_target and self.can_afford(U.PROBE) and self.supply_left > 0:
+        # Build probes until we reach 22 workers
+        if self.workers.amount < worker_target and self.can_afford(U.PROBE) and self.supply_left > 0:
             for nexus in self.townhalls.ready.idle:
                 nexus.train(U.PROBE)
                 return
@@ -84,7 +84,12 @@ class SimpleProtossBot(BotAI):
 
 
     async def handle_idle_workers(self):
-         for worker in self.workers.idle:
+        try:
+            idle_workers = self.workers.idle
+        except KeyError:
+            # OWAIN'S COMMENT: This SC2 version reports an unknown worker ability.
+            return
+        for worker in idle_workers:
             minerals = self.mineral_field.closer_than(20, self.start_location)
             if minerals:
                 worker.gather(minerals.closest_to(worker))
@@ -395,16 +400,24 @@ class SimpleProtossBot(BotAI):
      nexus = self.townhalls.first
 
     # CORRECT geyser selection for BurnySC2
-     geysers = self.vespene_geyser.closer_than(40, nexus.position)
+     # OWAIN'S COMMENT: Only use the two geysers at the starting Nexus.
+     geysers = self.vespene_geyser.closer_than(15, nexus.position)
 
     # Build ONE assimilator per frame
      for geyser in geysers:
         # If no assimilator exists here, build one
-        if not self.structures(U.ASSIMILATOR).closer_than(1, geyser.position).exists:
-            worker = self.select_build_worker(geyser.position)
+        if not self.structures(U.ASSIMILATOR).closer_than(1, geyser.position).exists and self.can_afford(U.ASSIMILATOR):
+            # OWAIN'S COMMENT: select_build_worker reads unsupported order data here.
+            worker = self.workers.closest_to(geyser.position)
             if worker:
                 worker.build(U.ASSIMILATOR, geyser)
-            return  # absolutely required
+                break
+
+     # OWAIN'S COMMENT: BurnySC2's distribute_workers crashes on this SC2 version.
+     # Send Probes to completed Assimilators without using that helper.
+     for assimilator in self.structures(U.ASSIMILATOR).ready:
+      if assimilator.assigned_harvesters < assimilator.ideal_harvesters:
+       self.workers.closest_to(assimilator).gather(assimilator)
 
 
 
@@ -438,7 +451,7 @@ class SimpleProtossBot(BotAI):
         await self.build_stargate()
         await self.build_fleet_beacon()
 
-        #await self.build_assimilators_safe()
+        await self.build_assimilators_safe()
      
        
 
