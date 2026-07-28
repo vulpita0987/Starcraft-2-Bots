@@ -463,98 +463,71 @@ class SimpleProtossBot(BotAI):
     async def manage_carriers(self):
 
     # ----------------------------
-    # Build carriers continuously
+    # Build carriers
     # ----------------------------
      if self.structures(U.STARGATE).ready.exists:
-
-        for stargate in self.structures(U.STARGATE).ready:
-
+        for sg in self.structures(U.STARGATE).ready:
             if (
-                stargate.is_idle
+                sg.is_idle
                 and self.can_afford(U.CARRIER)
                 and self.supply_left >= 6
             ):
-                stargate.train(U.CARRIER)
-
+                sg.train(U.CARRIER)
 
      carriers = self.units(U.CARRIER)
 
-     if carriers.amount == 0:
+     if not carriers:
         return
 
+    # ------------------------------------
+    # Expansion locations (same every game
+    # for the current map)
+    # ------------------------------------
+     if not hasattr(self, "carrier_locations"):
+        self.carrier_locations = list(self.expansion_locations_list)
 
-    # ----------------------------
-    # Create scouting route once
-    # ----------------------------
-     if not hasattr(self, "carrier_scout_points"):
+    # ------------------------------------
+    # Store an index for EACH carrier
+    # ------------------------------------
+     if not hasattr(self, "carrier_targets"):
+        self.carrier_targets = {}
 
-        self.carrier_scout_points = [
-            self.enemy_start_locations[0]
-        ]
-
-        # Add every possible expansion location
-        for location in self.expansion_locations_list:
-
-            if location not in self.carrier_scout_points:
-                self.carrier_scout_points.append(location)
-
-
-    # ----------------------------
-    # Keep track of current target
-    # ----------------------------
-     if not hasattr(self, "carrier_scout_index"):
-
-        self.carrier_scout_index = 0
-
-
-    # ----------------------------
-    # Check for enemy buildings
-    # ----------------------------
-     if self.enemy_structures.exists:
-
-        target = self.enemy_structures.closest_to(
-            carriers.center
-        )
-
-        for carrier in carriers:
-
-            if carrier.is_idle:
-                carrier.attack(target)
-
-        return
-
-
-    # ----------------------------
-    # No enemy buildings found
-    # Scout next location
-    # ----------------------------
-     target = self.carrier_scout_points[
-        self.carrier_scout_index
-     ]
-
-
-    # Move all carriers together
      for carrier in carriers:
 
-        if carrier.is_idle:
+        # Assign first destination when spawned
+        if carrier.tag not in self.carrier_targets:
+            self.carrier_targets[carrier.tag] = 0
+
+        index = self.carrier_targets[carrier.tag]
+        target_location = self.carrier_locations[index]
+
+        # Enemy structures close to this expansion
+        nearby = self.enemy_structures.closer_than(
+            20,
+            target_location
+        )
+
+        # Attack buildings if there are any
+        if nearby.exists:
+
+            target = nearby.closest_to(carrier)
 
             carrier.attack(target)
 
+        else:
 
-    # ----------------------------
-    # Move to next scout point
-    # ----------------------------
-     if carriers.center.distance_to(target) < 8:
+            # Fly to expansion
+            if carrier.distance_to(target_location) > 8:
+                carrier.attack(target_location)
 
-        self.carrier_scout_index += 1
+            else:
+                # Expansion cleared
+                index += 1
 
+                if index >= len(self.carrier_locations):
+                    index = 0
 
-        # Restart after checking whole map
-        if self.carrier_scout_index >= len(
-            self.carrier_scout_points
-        ):
-
-            self.carrier_scout_index = 0
+                self.carrier_targets[carrier.tag] = index
 
     async def manage_zealots(self):
 
