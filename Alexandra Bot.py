@@ -83,19 +83,6 @@ class SimpleProtossBot(BotAI):
 
 
 
-
-
-    async def handle_idle_workers_old(self):
-        try:
-            idle_workers = self.workers.idle
-        except KeyError:
-            # OWAIN'S COMMENT: This SC2 version reports an unknown worker ability.
-            return
-        for worker in idle_workers:
-            minerals = self.mineral_field.closer_than(20, self.start_location)
-            if minerals:
-                worker.gather(minerals.closest_to(worker))
-
     async def handle_idle_workers(self):
     # Only run allocation if at least one worker is idle
      if not self.workers.idle.exists:
@@ -235,105 +222,18 @@ class SimpleProtossBot(BotAI):
      if self.can_afford(U.FORGE) and not self.already_pending(U.FORGE):
         await self.build(U.FORGE, near=nexus.position)
 
-    async def build_initial_zealots(self):
-    # Only start making zealots after 3 cannons exist
-     if self.structures(U.PHOTONCANNON).amount < 3:
-        return
-
-    # Stop at 20 zealots for the first batch
-     if self.units(U.ZEALOT).amount >= 20:
-        return
-
-    # Need a gateway
-     if not self.structures(U.GATEWAY).ready.exists:
-        return
-
-     gateway = self.structures(U.GATEWAY).ready.first
-
-     if self.can_afford(U.ZEALOT) and gateway.is_idle:
-        gateway.train(U.ZEALOT)
-
-    async def patrol_and_defend_base(self):
-     zealots = self.units(U.ZEALOT)
-
-     if zealots.amount == 0:
-        return
-
-     nexus = self.townhalls.first
-     choke = self.main_base_ramp.top_center
-
-    # 1. Detect any enemy near the Nexus (base defense zone)
-     threats = self.enemy_units.closer_than(30, nexus.position)
-
-    # 2. If ANY enemy is inside the base → all zealots attack together
-     if threats.exists:
-        target = threats.closest_to(nexus)
-        for z in zealots:
-            z.attack(target)
-        return
-
-    # 3. No threats → ALL zealots move to the choke and hold position
-     for z in zealots:
-        if z.is_idle:
-            z.attack(choke)
 
 
 
 
 
     
-    async def split_zealots(self):
-     zealots = self.units(U.ZEALOT)
-
-     if zealots.amount < 20:
-        return
-
-    # Only split once
-     if len(self.zealot_attack_group) == 10 and len(self.zealot_defend_group) == 10:
-        return
-
-    # First 10 defend
-     self.zealot_defend_group = zealots[:10]
-
-    # Next 10 attack
-     self.zealot_attack_group = zealots[10:20]
-
-    # Send attackers to enemy start
-     enemy_base = self.enemy_start_locations[0]
-     for z in self.zealot_attack_group:
-        z.attack(enemy_base)
 
 
-    async def build_continuous_zealots(self):
-    # Only start continuous production after all 5 cannons exist
-     if self.structures(U.PHOTONCANNON).amount < 5:
-        return
 
-    # Need a gateway
-     if not self.structures(U.GATEWAY).ready.exists:
-        return
-
-     gateway = self.structures(U.GATEWAY).ready.first
-
-     if self.can_afford(U.ZEALOT) and gateway.is_idle:
-        gateway.train(U.ZEALOT)
+   
     
-    async def manage_zealot_groups(self):
-     zealots = self.units(U.ZEALOT)
 
-    # Always keep 10 defenders
-     defenders = zealots[:10]
-     attackers = zealots[10:]
-
-    # Defenders stay at base
-     nexus = self.townhalls.first
-     for z in defenders:
-        z.attack(nexus.position)
-
-    # Every extra 10 attackers go attack
-     enemy_base = self.enemy_start_locations[0]
-     for z in attackers:
-        z.attack(enemy_base)
 
     async def build_supply_pylon(self):
      if self.supply_left < 4 and self.structures(U.PYLON).amount >= 2:
@@ -582,27 +482,171 @@ class SimpleProtossBot(BotAI):
 
             zealot.attack(target)
 
+
+
+   
+
+    async def build_pylons(self):
+     if not self.townhalls.ready.exists:
+        return
+
+     if not self.can_afford(U.PYLON):
+        return
+
+    # Don't queue another while one is already being built
+     if self.already_pending(U.PYLON):
+        return
+
+     nexus = self.townhalls.first
+     pylons = self.structures(U.PYLON)
+
+    # ======================================================
+    # First pylon behind the choke
+    # ======================================================
+     if pylons.amount == 0:
+        choke = self.main_base_ramp.top_center
+
+        # 6 tiles inside your base from the choke
+        pos = choke.towards(self.start_location, 6)
+
+        if await self.can_place(U.PYLON, pos):
+            await self.build(U.PYLON, near=pos)
+
+        return
+
+    # ======================================================
+    # Build more pylons only when supply is getting low
+    # ======================================================
+     if self.supply_left >= 4:
+        return
+
+    # Don't spam pylons
+     if self.already_pending(U.PYLON) >= 2:
+        return
+
+     base_structures = self.structures.closer_than(30, nexus.position)
+
+     candidate_positions = []
+
+     for structure in base_structures:
+
+        # Push the pylon away from the Nexus so it stays around
+        # the outside of the base.
+        direction = (structure.position - nexus.position)
+
+        if direction.length > 0:
+            direction = direction.normalized
+        else:
+            continue
+
+        candidate_positions.extend([
+            structure.position + direction * 5,
+            structure.position + direction * 7,
+            structure.position + Point2((4, 4)),
+            structure.position + Point2((-4, 4)),
+            structure.position + Point2((4, -4)),
+            structure.position + Point2((-4, -4)),
+        ])
+
+     for pos in candidate_positions:
+
+        # Keep pylons spread out
+        if pylons.closer_than(8, pos).exists:
+            continue
+
+        if await self.can_place(U.PYLON, pos):
+            await self.build(U.PYLON, near=pos)
+            return
+
+    async def manage_workers(self):
+     if not self.townhalls.ready.exists:
+        return
+
+     nexus = self.townhalls.ready.first
+
+    # =====================================================
+    # Build workers
+    # =====================================================
+     gas_target = self.structures(U.ASSIMILATOR).ready.amount * 3
+     worker_target = 16 + gas_target
+
+     if (
+        self.workers.amount < worker_target
+        and self.can_afford(U.PROBE)
+        and self.supply_left > 0
+        and nexus.is_idle
+     ):
+        nexus.train(U.PROBE)
+
+    # =====================================================
+    # Mineral patches around the Nexus
+    # =====================================================
+     minerals = self.mineral_field.closer_than(20, nexus.position)
+
+     if not minerals:
+        return
+
+     mineral_tags = {m.tag for m in minerals}
+
+    # =====================================================
+    # Fill Assimilators (3 workers each)
+    # =====================================================
+     for assim in self.structures(U.ASSIMILATOR).ready:
+
+        gas_workers = self.workers.filter(
+            lambda w: w.is_collecting and w.order_target == assim.tag
+        )
+
+        while gas_workers.amount < 3:
+
+            mineral_workers = self.workers.filter(
+                lambda w: (
+                    w.is_collecting
+                    and w.order_target in mineral_tags
+                )
+            )
+
+            if not mineral_workers.exists:
+                break
+
+            worker = mineral_workers.closest_to(assim)
+            worker.gather(assim)
+
+            gas_workers = self.workers.filter(
+                lambda w: w.is_collecting and w.order_target == assim.tag
+            )
+
+    # =====================================================
+    # Send idle workers to minerals
+    # =====================================================
+     for worker in self.workers.idle:
+        worker.gather(minerals.closest_to(worker))
+
     # ---------- MAIN LOOP ----------
 
     async def on_step(self, iteration: int):
-        await self.build_initial_pylon()
-        await self.build_corner_pylons()
-        await self.build_workers()
-        await self.handle_idle_workers()
+
+        #await self.build_initial_pylon()
+        #await self.build_corner_pylons()
+        #await self.build_supply_pylon()
+        await self.build_pylons()
+
+        #await self.build_workers()
+        #await self.handle_idle_workers()
+        await self.manage_workers()
+
+        await self.build_choke_cannons()
+
+        await self.manage_zealots()
+        #--
         await self.build_forge()
         await self.build_gateway()
-        await self.build_choke_cannons()
-        await self.manage_zealots()
-       # await self.build_initial_zealots()
-       # await self.patrol_and_defend_base()
-      #  await self.split_zealots()
-      #  await self.build_continuous_zealots()
-      #  await self.manage_zealot_groups()
-        await self.build_supply_pylon()
         await self.build_cybercore()
         await self.build_stargate()
         await self.build_fleet_beacon()
+
         await self.build_assimilators_safe()
+
         await self.manage_carriers()
      
        
