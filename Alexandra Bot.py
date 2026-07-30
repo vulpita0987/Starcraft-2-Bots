@@ -435,14 +435,11 @@ class SimpleProtossBot(BotAI):
     # Build zealots
     # ----------------------------
 
-    # Need gateway
      if not self.structures(U.GATEWAY).ready.exists:
         return
 
      gateway = self.structures(U.GATEWAY).ready.first
 
-
-    # Keep producing zealots
      if (
         self.can_afford(U.ZEALOT)
         and gateway.is_idle
@@ -450,37 +447,36 @@ class SimpleProtossBot(BotAI):
      ):
         gateway.train(U.ZEALOT)
 
-
     # ----------------------------
-    # Attack with all zealots
+    # Control zealots
     # ----------------------------
 
      zealots = self.units(U.ZEALOT)
 
-     if zealots.amount == 0:
+     if not zealots.exists:
         return
 
-
-    # If enemy buildings are visible, destroy them
+    # Main destination
      if self.enemy_structures.exists:
-
-        target = self.enemy_structures.closest_to(
-            zealots.center
-        )
-
-
-    # Otherwise go to enemy starting location
+        main_target = self.enemy_structures.closest_to(zealots.center)
      else:
+        main_target = self.enemy_start_locations[0]
 
-        target = self.enemy_start_locations[0]
-
-
-    # Send every zealot forward
      for zealot in zealots:
 
-        if zealot.is_idle:
+        # Look for nearby enemies first
+        nearby_enemies = self.enemy_units.closer_than(8, zealot)
 
-            zealot.attack(target)
+        if nearby_enemies.exists:
+            target = nearby_enemies.closest_to(zealot)
+
+            # Only issue a new order if needed
+            if zealot.order_target != target.tag:
+                zealot.attack(target)
+
+        # Otherwise continue advancing
+        elif zealot.is_idle:
+            zealot.attack(main_target)
 
 
 
@@ -559,14 +555,16 @@ class SimpleProtossBot(BotAI):
             return
 
     async def manage_workers(self):
+
      if not self.townhalls.ready.exists:
         return
 
      nexus = self.townhalls.ready.first
 
     # =====================================================
-    # Build workers
+    # Build Probes
     # =====================================================
+
      gas_target = self.structures(U.ASSIMILATOR).ready.amount * 3
      worker_target = 16 + gas_target
 
@@ -579,49 +577,123 @@ class SimpleProtossBot(BotAI):
         nexus.train(U.PROBE)
 
     # =====================================================
-    # Mineral patches around the Nexus
+    # Nearby mineral patches
     # =====================================================
-     minerals = self.mineral_field.closer_than(20, nexus.position)
 
-     if not minerals:
+     minerals = self.mineral_field.closer_than(20, nexus)
+
+     if not minerals.exists:
         return
 
-     mineral_tags = {m.tag for m in minerals}
+    # =====================================================
+    # Fill Assimilators
+    # =====================================================
 
-    # =====================================================
-    # Fill Assimilators (3 workers each)
-    # =====================================================
      for assim in self.structures(U.ASSIMILATOR).ready:
 
-        gas_workers = self.workers.filter(
-            lambda w: w.is_collecting and w.order_target == assim.tag
-        )
+        # Count workers already close to this Assimilator
+        nearby_workers = self.workers.closer_than(3, assim)
 
-        while gas_workers.amount < 3:
+        if nearby_workers.amount >= 3:
+            continue
 
-            mineral_workers = self.workers.filter(
-                lambda w: (
-                    w.is_collecting
-                    and w.order_target in mineral_tags
-                )
-            )
+        needed = 3 - nearby_workers.amount
 
-            if not mineral_workers.exists:
-                break
+        candidates = self.workers.sorted_by_distance_to(assim)
 
-            worker = mineral_workers.closest_to(assim)
+        for worker in candidates[:needed]:
             worker.gather(assim)
 
-            gas_workers = self.workers.filter(
-                lambda w: w.is_collecting and w.order_target == assim.tag
-            )
+    # =====================================================
+    # Idle workers mine minerals
+    # =====================================================
 
-    # =====================================================
-    # Send idle workers to minerals
-    # =====================================================
      for worker in self.workers.idle:
         worker.gather(minerals.closest_to(worker))
 
+
+    async def manage_buildings(self):
+
+     if not self.townhalls.ready.exists:
+        return
+
+     nexus = self.townhalls.ready.first
+     center = self.game_info.map_center
+
+    # Building positions (spread out to leave room for units)
+     forge_pos = nexus.position.towards(center, 6)
+     gateway_pos = nexus.position.towards(center, 10)
+     cyber_pos = nexus.position.towards(center, 14)
+     stargate_pos = nexus.position.towards(center, 18)
+     fleet_pos = nexus.position.towards(center, 22)
+
+    # ==========================================================
+    # 1. Forge
+    # ==========================================================
+     if self.structures(U.FORGE).amount == 0:
+        if self.can_afford(U.FORGE):
+            await self.build(U.FORGE, near=forge_pos)
+        return
+
+    # ==========================================================
+    # 2. Build 3 Photon Cannons
+    # ==========================================================
+     if self.structures(U.PHOTONCANNON).amount < 3:
+
+        if self.can_afford(U.PHOTONCANNON):
+
+            # Build each cannon a little further from the Nexus
+            distance = 7 + self.structures(U.PHOTONCANNON).amount * 2
+
+            cannon_pos = nexus.position.towards(center, distance)
+
+            await self.build(U.PHOTONCANNON, near=cannon_pos)
+
+        return
+
+    # Wait until all 3 cannons are finished
+     if self.structures(U.PHOTONCANNON).ready.amount < 3:
+        return
+
+    # ==========================================================
+    # 3. Gateway
+    # ==========================================================
+     if self.structures(U.GATEWAY).amount == 0:
+        if self.can_afford(U.GATEWAY):
+            await self.build(U.GATEWAY, near=gateway_pos)
+        return
+
+    # ==========================================================
+    # 4. Cybernetics Core
+    # ==========================================================
+     if (
+        self.structures(U.GATEWAY).ready.exists
+        and self.structures(U.CYBERNETICSCORE).amount == 0
+     ):
+        if self.can_afford(U.CYBERNETICSCORE):
+            await self.build(U.CYBERNETICSCORE, near=cyber_pos)
+        return
+
+    # ==========================================================
+    # 5. Stargate
+    # ==========================================================
+     if (
+        self.structures(U.CYBERNETICSCORE).ready.exists
+        and self.structures(U.STARGATE).amount == 0
+     ):
+        if self.can_afford(U.STARGATE):
+            await self.build(U.STARGATE, near=stargate_pos)
+        return
+
+    # ==========================================================
+    # 6. Fleet Beacon
+    # ==========================================================
+     if (
+        self.structures(U.STARGATE).ready.exists
+        and self.structures(U.FLEETBEACON).amount == 0
+     ):
+        if self.can_afford(U.FLEETBEACON):
+            await self.build(U.FLEETBEACON, near=fleet_pos)
     # ---------- MAIN LOOP ----------
 
     async def on_step(self, iteration: int):
@@ -638,12 +710,13 @@ class SimpleProtossBot(BotAI):
         await self.build_choke_cannons()
 
         await self.manage_zealots()
-        #--
-        await self.build_forge()
-        await self.build_gateway()
-        await self.build_cybercore()
-        await self.build_stargate()
-        await self.build_fleet_beacon()
+      
+        #await self.build_forge()
+        #await self.build_gateway()
+        #await self.build_cybercore()
+        #await self.build_stargate()
+        #await self.build_fleet_beacon()
+        await self.manage_buildings()
 
         await self.build_assimilators_safe()
 
