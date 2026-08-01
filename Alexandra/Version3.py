@@ -302,19 +302,6 @@ class SimpleProtossBot(BotAI):
 
      nexus = self.townhalls.ready.first
 
-
-    # =====================================================
-    # Create worker pool excluding expansion Probe
-    # =====================================================
-
-     available_workers = self.workers
-
-     if hasattr(self, "expansion_probe"):
-        available_workers = self.workers.filter(
-            lambda w: w.tag != self.expansion_probe
-        )
-
-
     # =====================================================
     # Build Probes
     # =====================================================
@@ -330,21 +317,14 @@ class SimpleProtossBot(BotAI):
      ):
         nexus.train(U.PROBE)
 
-
-
     # =====================================================
-    # Nearby minerals
+    # Nearby mineral patches
     # =====================================================
 
-     minerals = self.mineral_field.closer_than(
-        20,
-        nexus
-     )
+     minerals = self.mineral_field.closer_than(20, nexus)
 
      if not minerals.exists:
         return
-
-
 
     # =====================================================
     # Fill Assimilators
@@ -352,42 +332,25 @@ class SimpleProtossBot(BotAI):
 
      for assim in self.structures(U.ASSIMILATOR).ready:
 
-        nearby_workers = available_workers.closer_than(
-            3,
-            assim
-        )
+        # Count workers already close to this Assimilator
+        nearby_workers = self.workers.closer_than(3, assim)
 
         if nearby_workers.amount >= 3:
             continue
 
-
         needed = 3 - nearby_workers.amount
 
+        candidates = self.workers.sorted_by_distance_to(assim)
 
-        candidates = available_workers.sorted_by_distance_to(
-            assim
-        )
-
-
-        for worker in candidates:
-
-            if needed <= 0:
-                break
-
+        for worker in candidates[:needed]:
             worker.gather(assim)
-            needed -= 1
-
-
 
     # =====================================================
-    # Send idle workers to minerals
+    # Idle workers mine minerals
     # =====================================================
 
-     for worker in available_workers.idle:
-
-        worker.gather(
-            minerals.closest_to(worker)
-        )
+     for worker in self.workers.idle:
+        worker.gather(minerals.closest_to(worker))
 
 
     async def manage_buildings(self):
@@ -476,19 +439,20 @@ class SimpleProtossBot(BotAI):
 
     async def develop_expansions(self):
 
+    # Don't develop until Fleet Beacon exists
+     if not self.structures(U.FLEETBEACON).ready.exists:
+        return
+
      for nexus in self.townhalls.ready:
 
         # Skip the starting base
         if nexus == self.townhalls.first:
             continue
 
-        center = nexus.position.towards(
-            self.game_info.map_center,
-            6
-        )
+        center = nexus.position.towards(self.game_info.map_center, 6)
 
         # =====================================================
-        # Build Assimilators
+        # Assimilators (2)
         # =====================================================
 
         geysers = self.vespene_geyser.closer_than(12, nexus)
@@ -499,13 +463,13 @@ class SimpleProtossBot(BotAI):
 
                 if self.can_afford(U.ASSIMILATOR):
 
-                    worker = self.workers.closest_to(geyser)
+                    worker = self.select_build_worker(geyser.position)
 
                     if worker:
                         worker.build(U.ASSIMILATOR, geyser)
 
         # =====================================================
-        # Build one Pylon
+        # One Pylon
         # =====================================================
 
         pylons = self.structures(U.PYLON).closer_than(10, nexus)
@@ -521,33 +485,31 @@ class SimpleProtossBot(BotAI):
 
             continue
 
+        # Wait until powered
         if not pylons.ready.exists:
             continue
 
         # =====================================================
-        # Build two Stargates
+        # Two Stargates
         # =====================================================
 
         stargates = self.structures(U.STARGATE).closer_than(15, nexus)
 
-        if stargates.amount < 2:
+        while (
+            stargates.amount + self.already_pending(U.STARGATE) < 2
+            and self.can_afford(U.STARGATE)
+        ):
 
-            if self.can_afford(U.STARGATE):
+            pos = center.towards(
+                self.game_info.map_center,
+                4 + stargates.amount * 4
+            )
 
-                pos = center.towards(
-                    self.game_info.map_center,
-                    5 + stargates.amount * 5
-                )
-
-                await self.build(
-                    U.STARGATE,
-                    near=pos
-                )
-
-            continue
+            await self.build(U.STARGATE, near=pos)
+            return
 
         # =====================================================
-        # Build one Shield Battery
+        # One Shield Battery
         # =====================================================
 
         batteries = self.structures(U.SHIELDBATTERY).closer_than(12, nexus)
@@ -558,16 +520,13 @@ class SimpleProtossBot(BotAI):
 
                 await self.build(
                     U.SHIELDBATTERY,
-                    near=center.towards(
-                        self.start_location,
-                        3
-                    )
+                    near=center.towards(self.game_info.map_center, -3)
                 )
 
-            continue
+            return
 
         # =====================================================
-        # Build three Photon Cannons
+        # Three Photon Cannons
         # =====================================================
 
         cannons = self.structures(U.PHOTONCANNON).closer_than(15, nexus)
@@ -589,97 +548,19 @@ class SimpleProtossBot(BotAI):
                     U.PHOTONCANNON,
                     near=pos
                 )
-
-                break
+                return
 
     async def manage_expansions(self):
 
      MAX_BASES = 4
 
-
-    # =====================================================
-    # Find expansion location once
-    # =====================================================
-
-     if not hasattr(self, "waiting_expansion"):
-
-        self.waiting_expansion = await self.get_next_expansion()
-
-        if self.waiting_expansion is None:
-            return
-
-
-
-    # =====================================================
-    # Reserve one Probe permanently
-    # =====================================================
-
-     if not hasattr(self, "expansion_probe"):
-
-        if self.workers.exists:
-
-            probe = self.workers.closest_to(
-                self.waiting_expansion
-            )
-
-            self.expansion_probe = probe.tag
-
-            # Hide behind your expansion, towards your main
-            hiding_spot = self.waiting_expansion.towards(
-                self.start_location,
-                10
-            )
-
-            probe.move(hiding_spot)
-
-        return
-
-
-
-     probe = self.workers.find_by_tag(
-        self.expansion_probe
-     )
-
-
-     if probe is None:
-        return
-
-
-
-    # =====================================================
-    # Wait for Stargate
-    # =====================================================
-
-     if not self.structures(U.STARGATE).ready.exists:
-        return
-
-
-
-    # =====================================================
-    # Build Nexus once
-    # =====================================================
-
-     if not hasattr(self, "expansion_started"):
-        self.expansion_started = False
-
-
      if (
-        self.townhalls.amount < MAX_BASES
-        and not self.expansion_started
+        self.townhalls.amount + self.already_pending(U.NEXUS) < MAX_BASES
         and self.can_afford(U.NEXUS)
      ):
-
-        probe.build(
-            U.NEXUS,
-            self.waiting_expansion
-        )
-
-        self.expansion_started = True
-
+        await self.expand_now()
 
      await self.develop_expansions()
-
-
     # ---------- MAIN LOOP ----------
 
     async def on_step(self, iteration: int):
@@ -690,7 +571,7 @@ class SimpleProtossBot(BotAI):
         await self.manage_zealots()
         await self.manage_buildings()
         await self.build_assimilators_safe()
-        await self.manage_expansions() #also calls on develop_expansions
+        #await self.manage_expansions() #also calls on develop_expansions
         await self.manage_carriers()
      
        
