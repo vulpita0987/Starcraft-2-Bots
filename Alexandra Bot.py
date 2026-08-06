@@ -86,7 +86,7 @@ class SimpleProtossBot(BotAI):
         if len(expansions) < 3:
             return
 
-        self.relocation_location = expansions[2]
+        self.relocation_location = expansions[4]
 
 
     # ==========================================================
@@ -235,6 +235,196 @@ class SimpleProtossBot(BotAI):
      self.relocation_complete = True
 
 
+    async def build_workers(self):
+
+    # ==========================================================
+    # Only start normal worker production after relocation.
+    # ==========================================================
+
+     if not self.relocation_complete:
+        return
+
+
+    # ==========================================================
+    # We want 22 workers total.
+    # ==========================================================
+
+     if self.workers.amount >= 22:
+        return
+
+
+    # ==========================================================
+    # Find our relocated Nexus.
+    # ==========================================================
+
+     if self.relocation_location is None:
+        return
+
+     nexuses = self.structures(U.NEXUS).closer_than(
+        5,
+        self.relocation_location
+     )
+
+     if not nexuses.exists:
+        return
+
+     nexus = nexuses.closest_to(
+        self.relocation_location
+     )
+
+
+    # ==========================================================
+    # Nexus must be completed before producing workers.
+    # ==========================================================
+
+     if not nexus.is_ready:
+        return
+
+
+    # ==========================================================
+    # Build a Probe if we can afford one.
+    # ==========================================================
+
+     if (
+        self.can_afford(U.PROBE)
+        and self.supply_left > 0
+        and not self.already_pending(U.PROBE)
+     ):
+
+        nexus.train(U.PROBE)
+
+
+    async def manage_workers_and_gas(self):
+
+    # ==========================================================
+    # Only manage workers after relocation is complete.
+    # ==========================================================
+
+     if not self.relocation_complete:
+        return
+
+
+     if self.relocation_location is None:
+        return
+
+
+    # ==========================================================
+    # Find our new Nexus.
+    # ==========================================================
+
+     nexuses = self.structures(U.NEXUS).closer_than(
+        5,
+        self.relocation_location
+     )
+
+     if not nexuses.exists:
+        return
+
+     nexus = nexuses.closest_to(
+        self.relocation_location
+     )
+
+     if not nexus.is_ready:
+        return
+
+
+    # ==========================================================
+    # Find the Assimilator geysers around our new Nexus.
+    # ==========================================================
+
+     geysers = self.vespene_geyser.closer_than(
+        10,
+        nexus
+     )
+
+     if not geysers.exists:
+        return
+
+
+    # ==========================================================
+    # Build an Assimilator on each available geyser.
+    # ==========================================================
+
+     assimilators = self.structures(U.ASSIMILATOR).closer_than(
+        10,
+        nexus
+     )
+
+     for geyser in geysers:
+
+        if assimilators.closer_than(1, geyser).exists:
+            continue
+
+        if not self.can_afford(U.ASSIMILATOR):
+            break
+
+        worker = self.workers.idle.random if self.workers.idle.exists else None
+
+        if worker is None:
+            continue
+
+        await self.build(
+            U.ASSIMILATOR,
+            near=geyser,
+            build_worker=worker
+        )
+
+        return
+
+
+    # ==========================================================
+    # Refresh the Assimilator list after construction begins.
+    # ==========================================================
+
+     assimilators = self.structures(U.ASSIMILATOR).closer_than(
+        10,
+        nexus
+     )
+
+
+    # ==========================================================
+    # GAS MANAGEMENT
+    #
+    # We want 3 workers on each completed Assimilator.
+    # ==========================================================
+
+     for assimilator in assimilators.ready:
+
+        while (
+            assimilator.assigned_harvesters < 3
+            and self.workers.idle.exists
+        ):
+
+            worker = self.workers.idle.random
+
+            worker.gather(assimilator)
+
+
+    # ==========================================================
+    # MINERAL MANAGEMENT
+    #
+    # Find minerals around the new Nexus.
+    # ==========================================================
+
+     minerals = self.mineral_field.closer_than(
+        10,
+        nexus
+     )
+
+     if not minerals.exists:
+        return
+
+
+    # ==========================================================
+    # Any idle workers that aren't needed for gas go to minerals.
+    # ==========================================================
+
+     mineral_patch = minerals.closest_to(nexus)
+
+     for worker in self.workers.idle:
+
+        worker.gather(mineral_patch)
+
 
 
     # ---------- MAIN LOOP ----------
@@ -242,7 +432,28 @@ class SimpleProtossBot(BotAI):
     async def on_step(self, iteration: int):
 
         
-        await self.start_relocation()
+        
+
+    # ==========================================================
+    # FIRST: relocation experiment
+    # ==========================================================
+
+       await self.start_relocation()
+
+
+    # ==========================================================
+    # AFTER relocation:
+    # Build workers up to 22.
+    # ==========================================================
+
+       await self.build_workers()
+
+
+    # ==========================================================
+    # Manage gas and mineral workers.
+    # ==========================================================
+
+       await self.manage_workers_and_gas()
        
 
         
