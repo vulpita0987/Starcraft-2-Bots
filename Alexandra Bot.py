@@ -523,10 +523,11 @@ class SimpleProtossBot(BotAI):
         nexus.train(U.PROBE)
 
    
+   
     async def build_gas(self):
 
     # ==========================================================
-    # Only build gas after relocation is complete.
+    # ONLY RUN AFTER RELOCATION IS COMPLETE
     # ==========================================================
 
      if not self.relocation_complete:
@@ -537,142 +538,7 @@ class SimpleProtossBot(BotAI):
 
 
     # ==========================================================
-    # Find the NEW Nexus.
-    # ==========================================================
-
-     nexuses = self.structures(U.NEXUS).closer_than(
-        5,
-        self.relocation_location
-     )
-
-     if not nexuses.exists:
-        return
-
-     new_nexus = nexuses.closest_to(
-        self.relocation_location
-     )
-
-     if not new_nexus.is_ready:
-        return
-
-
-    # ==========================================================
-    # Find the geysers belonging to the NEW base.
-    # ==========================================================
-
-     geysers = self.vespene_geyser.closer_than(
-        10,
-        new_nexus
-     )
-
-     if not geysers.exists:
-        return
-
-
-    # ==========================================================
-    # Find Assimilators already built at the NEW base.
-    # ==========================================================
-
-     assimilators = self.structures(U.ASSIMILATOR).closer_than(
-        10,
-        new_nexus
-     )
-
-
-    # ==========================================================
-    # Build missing Assimilators.
-    #
-    # We deliberately DO NOT use:
-    #
-    # self.already_pending(U.ASSIMILATOR)
-    #
-    # because that is what caused the KeyError: 4135.
-    # ==========================================================
-
-     for geyser in geysers:
-
-        # Already have an Assimilator on this geyser.
-        if assimilators.closer_than(1, geyser).exists:
-            continue
-
-
-        # If we are already waiting for an Assimilator to
-        # appear, don't issue another build command.
-        if self.gas_build_started:
-            return
-
-
-        # Need 75 minerals for an Assimilator.
-        if not self.can_afford(U.ASSIMILATOR):
-            return
-
-
-        # ======================================================
-        # Find a worker at/near the new base.
-        # ======================================================
-
-        workers = self.workers.closer_than(
-            10,
-            new_nexus
-        )
-
-        if not workers.exists:
-            return
-
-
-        # Prefer an idle worker.
-        idle_workers = workers.idle
-
-        if idle_workers.exists:
-            worker = idle_workers.random
-        else:
-            # If none are idle, use a worker closest to the
-            # geyser.
-            worker = workers.closest_to(geyser)
-
-
-        # ======================================================
-        # Build the Assimilator.
-        # ======================================================
-
-        await self.build(
-            U.ASSIMILATOR,
-            near=geyser,
-            build_worker=worker
-        )
-
-
-        # Remember that we have just started construction.
-        self.gas_build_started = True
-
-        return
-
-
-    # ==========================================================
-    # If we reach this point, all available geysers have
-    # Assimilators.
-    #
-    # Reset the flag so the function remains safe.
-    # ==========================================================
-
-     self.gas_build_started = False
-
-
-
-    async def manage_workers(self):
-
-    # ==========================================================
-    # Only manage workers after relocation.
-    # ==========================================================
-
-     if not self.relocation_complete:
-        return
-
-     if self.relocation_location is None:
-        return
-
-    # ==========================================================
-    # Find the new Nexus.
+    # FIND OUR NEW NEXUS
     # ==========================================================
 
      nexuses = self.structures(U.NEXUS).closer_than(
@@ -690,32 +556,227 @@ class SimpleProtossBot(BotAI):
      if not nexus.is_ready:
         return
 
+
     # ==========================================================
-    # Find completed Assimilators at the new base.
+    # FIND THE TWO GEYSERS AT THE NEW BASE
+    # ==========================================================
+
+     geysers = self.vespene_geyser.closer_than(
+        10,
+        nexus
+     )
+
+     if not geysers.exists:
+        return
+
+
+    # ==========================================================
+    # FIND EXISTING ASSIMILATORS AT THIS BASE
     # ==========================================================
 
      assimilators = self.structures(U.ASSIMILATOR).closer_than(
         10,
         nexus
-     ).ready
+     )
+
 
     # ==========================================================
-    # Put workers onto gas.
+    # BUILD AN ASSIMILATOR ON EVERY MISSING GEYSER
     # ==========================================================
 
-     for assimilator in assimilators:
+     for geyser in geysers:
 
-        while (
-            assimilator.assigned_harvesters < 3
-            and self.workers.idle.exists
+        # ------------------------------------------------------
+        # Does this geyser already have an Assimilator?
+        # ------------------------------------------------------
+
+        if assimilators.closer_than(
+            1.5,
+            geyser
+        ).exists:
+            continue
+
+
+        # ------------------------------------------------------
+        # We need 75 minerals.
+        # ------------------------------------------------------
+
+        if not self.can_afford(U.ASSIMILATOR):
+            return
+
+
+        # ------------------------------------------------------
+        # Prefer an idle worker near the new base.
+        # ------------------------------------------------------
+
+        workers_near_base = self.workers.closer_than(
+            10,
+            nexus
+        )
+
+        if not workers_near_base.exists:
+            return
+
+
+        idle_workers = workers_near_base.idle
+
+        if idle_workers.exists:
+
+            worker = idle_workers.closest_to(
+                geyser
+            )
+
+        else:
+
+            # --------------------------------------------------
+            # If no worker is idle, take the worker closest
+            # to the geyser.
+            # --------------------------------------------------
+
+            worker = workers_near_base.closest_to(
+                geyser
+            )
+
+
+        # ------------------------------------------------------
+        # Build the Assimilator.
+        # ------------------------------------------------------
+
+        await self.build(
+            U.ASSIMILATOR,
+            near=geyser,
+            build_worker=worker
+        )
+
+        # ------------------------------------------------------
+        # Re-check on the next game step.
+        # ------------------------------------------------------
+
+        return
+
+
+
+
+
+    
+  
+   
+    async def manage_workers(self):
+
+    # ==========================================================
+    # ONLY MANAGE WORKERS AFTER RELOCATION IS COMPLETE
+    # ==========================================================
+
+     if not self.relocation_complete:
+        return
+
+     if self.relocation_location is None:
+        return
+
+
+    # ==========================================================
+    # FIND THE NEW NEXUS
+    # ==========================================================
+
+     nexuses = self.structures(U.NEXUS).closer_than(
+        5,
+        self.relocation_location
+     )
+
+     if not nexuses.exists:
+        return
+
+     nexus = nexuses.closest_to(
+        self.relocation_location
+     )
+
+     if not nexus.is_ready:
+        return
+
+
+    # ==========================================================
+    # WORKER PRODUCTION
+    #
+    # Keep producing Probes until we have 22 workers.
+    # ==========================================================
+
+     if self.workers.amount < 22:
+
+        if (
+            self.can_afford(U.PROBE)
+            and nexus.is_idle
         ):
+            nexus.train(U.PROBE)
 
-            worker = self.workers.idle.random
+
+    # ==========================================================
+    # FIND THE ASSIMILATORS AT THE NEW BASE
+    # ==========================================================
+
+     assimilators = self.structures(U.ASSIMILATOR).closer_than(
+        10,
+        nexus
+     )
+
+
+    # ==========================================================
+    # GAS MANAGEMENT
+    #
+    # Each Assimilator wants 3 workers.
+    #
+    # IMPORTANT:
+    # We fill GAS FIRST.
+    # Only after gas is full do we assign workers to minerals.
+    # ==========================================================
+
+     for assimilator in assimilators.ready:
+
+        gas_needed = 3 - assimilator.assigned_harvesters
+
+        if gas_needed <= 0:
+            continue
+
+
+        # ------------------------------------------------------
+        # First use idle workers.
+        # ------------------------------------------------------
+
+        for worker in self.workers.idle:
+
+            if gas_needed <= 0:
+                break
 
             worker.gather(assimilator)
+            gas_needed -= 1
+
+
+        # ------------------------------------------------------
+        # If there aren't enough idle workers,
+        # take workers currently mining minerals.
+        # ------------------------------------------------------
+
+        if gas_needed > 0:
+
+            mineral_workers = self.workers.filter(
+                lambda w:
+                    w.is_gathering
+                    and w.distance_to(nexus) < 10
+            )
+
+            for worker in mineral_workers:
+
+                if gas_needed <= 0:
+                    break
+
+                worker.gather(assimilator)
+                gas_needed -= 1
+
 
     # ==========================================================
-    # Find minerals around the new Nexus.
+    # MINERAL MANAGEMENT
+    #
+    # Now that gas has been filled, send remaining idle workers
+    # to minerals.
     # ==========================================================
 
      minerals = self.mineral_field.closer_than(
@@ -726,51 +787,59 @@ class SimpleProtossBot(BotAI):
      if not minerals.exists:
         return
 
-    # ==========================================================
-    # Send remaining idle workers to minerals.
-    # ==========================================================
 
-     mineral = minerals.closest_to(nexus)
+    # ==========================================================
+    # Spread idle workers over the mineral patches.
+    # ==========================================================
 
      for worker in self.workers.idle:
- 
+
+        mineral = minerals.closest_to(worker)
+
         worker.gather(mineral)
+
+
+
+
+
 
     # ---------- MAIN LOOP ----------
 
     
+  
     async def on_step(self, iteration: int):
 
     # ==========================================================
-    # FIRST: relocation experiment
+    # 1. FIRST: complete the relocation experiment
     # ==========================================================
 
-      await self.start_relocation()
+     await self.start_relocation()
 
-    # ==========================================================
-    # NORMAL DEVELOPMENT ONLY STARTS AFTER RELOCATION.
-    # ==========================================================
-
-      if not self.relocation_complete:
+     if not self.relocation_complete:
         return
 
-    # ==========================================================
-    # Keep producing workers until we reach 22.
-    # ==========================================================
-
-      await self.build_workers()
 
     # ==========================================================
-    # Get both Assimilators built as quickly as possible.
+    # 2. Build workers until we reach 22
     # ==========================================================
 
-      await self.build_gas()
+     await self.build_workers()
+
 
     # ==========================================================
-    # Keep workers assigned to gas/minerals.
+    # 3. Build both Assimilators at the new base
     # ==========================================================
 
-      await self.manage_workers()
+     await self.build_gas()
+
+
+    # ==========================================================
+    # 4. Keep workers assigned to gas/minerals
+    # ==========================================================
+
+     await self.manage_workers()
+
+
 
 
        
