@@ -1,4 +1,4 @@
-#Core bot and run loop
+
 from sc2.bot_ai import BotAI
 from sc2.main import run_game
 
@@ -36,18 +36,9 @@ class SimpleProtossBot(BotAI):
     def __init__(self):
      super().__init__()
 
-    # ==========================================================
-    # Expansion / relocation variables
-    # ==========================================================
-
      self.expansion_worker_tag = None
      self.expansion_location = None
      self.second_nexus_started = False
-
-
-    # ==========================================================
-    # Early relocation experiment
-    # ==========================================================
 
      self.relocation_started = False
      self.relocation_worker_tag = None
@@ -55,48 +46,14 @@ class SimpleProtossBot(BotAI):
      self.relocation_workers_sent = False
      self.relocation_complete = False
 
-
-    # ==========================================================
-    # Worker production
-    # ==========================================================
-
      self.worker_target = 22
-
-
-    # ==========================================================
-    # Gas / Assimilator construction
-    # ==========================================================
 
      self.gas_build_started = False
 
-
-
-
-   
-   
     async def start_relocation(self):
-
-    # ==========================================================
-    # If relocation is completely finished, do nothing.
-    # ==========================================================
 
      if self.relocation_complete:
         return
-
-
-    # ==========================================================
-    # CHOOSE THE NEW BASE LOCATION
-    #
-    # Sort all expansion locations by distance from our starting
-    # location.
-    #
-    # expansions[0] = closest expansion
-    # expansions[1] = second closest
-    # expansions[2] = third closest
-    #
-    # We want the THIRD location so that the new base is
-    # noticeably farther away from our starting base.
-    # ==========================================================
 
      if self.relocation_location is None:
 
@@ -110,21 +67,10 @@ class SimpleProtossBot(BotAI):
 
         self.relocation_location = expansions[4]
 
-
-    # ==========================================================
-    # STEP 1:
-    # Wait until we can afford a Nexus.
-    # ==========================================================
-
      if not self.relocation_started:
 
         if not self.can_afford(U.NEXUS):
             return
-
-
-        # ======================================================
-        # Find ONE worker to build the Nexus.
-        # ======================================================
 
         if self.relocation_worker_tag is None:
 
@@ -135,11 +81,6 @@ class SimpleProtossBot(BotAI):
 
             self.relocation_worker_tag = worker.tag
 
-
-        # ======================================================
-        # Find that worker again.
-        # ======================================================
-
         worker = self.workers.find_by_tag(
             self.relocation_worker_tag
         )
@@ -148,21 +89,11 @@ class SimpleProtossBot(BotAI):
             self.relocation_worker_tag = None
             return
 
-
-        # ======================================================
-        # Move the worker to the new base location.
-        # ======================================================
-
         if worker.distance_to(self.relocation_location) > 3:
 
             worker.move(self.relocation_location)
 
             return
-
-
-        # ======================================================
-        # Build the Nexus.
-        # ======================================================
 
         await self.build(
             U.NEXUS,
@@ -174,14 +105,6 @@ class SimpleProtossBot(BotAI):
 
         return
 
-
-    # ==========================================================
-    # STEP 2:
-    # The Nexus construction has started.
-    #
-    # Send ALL workers to the new base.
-    # ==========================================================
-
      if not self.relocation_workers_sent:
 
         for worker in self.workers:
@@ -189,15 +112,6 @@ class SimpleProtossBot(BotAI):
             worker.move(self.relocation_location)
 
         self.relocation_workers_sent = True
-
-
-    # ==========================================================
-    # STEP 3:
-    # Find the Nexus at the relocation location.
-    #
-    # We specifically look near the new location so we don't
-    # accidentally select the original Nexus.
-    # ==========================================================
 
      nexus = self.structures(U.NEXUS).closer_than(
         5,
@@ -211,26 +125,8 @@ class SimpleProtossBot(BotAI):
         self.relocation_location
      )
 
-
-    # ==========================================================
-    # STEP 4:
-    # Nexus is still being constructed.
-    #
-    # DO NOTHING.
-    #
-    # All workers stay at the new base.
-    # ==========================================================
-
      if not new_nexus.is_ready:
         return
-
-
-    # ==========================================================
-    # STEP 5:
-    # Nexus is COMPLETE.
-    #
-    # Find the minerals closest to the new Nexus.
-    # ==========================================================
 
      minerals = self.mineral_field.closest_to(
         new_nexus
@@ -239,45 +135,20 @@ class SimpleProtossBot(BotAI):
      if not minerals:
         return
 
-
-    # ==========================================================
-    # STEP 6:
-    # Send ALL workers to mine.
-    # ==========================================================
-
      for worker in self.workers:
 
         worker.gather(minerals)
-
-
-    # ==========================================================
-    # Relocation experiment is complete.
-    # ==========================================================
 
      self.relocation_complete = True
 
 
     async def build_workers(self):
 
-    # ==========================================================
-    # Only start normal worker production after relocation.
-    # ==========================================================
-
      if not self.relocation_complete:
         return
 
-
-    # ==========================================================
-    # We want 22 workers total.
-    # ==========================================================
-
      if self.workers.amount >= 22:
         return
-
-
-    # ==========================================================
-    # Find our relocated Nexus.
-    # ==========================================================
 
      if self.relocation_location is None:
         return
@@ -294,18 +165,8 @@ class SimpleProtossBot(BotAI):
         self.relocation_location
      )
 
-
-    # ==========================================================
-    # Nexus must be completed before producing workers.
-    # ==========================================================
-
      if not nexus.is_ready:
         return
-
-
-    # ==========================================================
-    # Build a Probe if we can afford one.
-    # ==========================================================
 
      if (
         self.can_afford(U.PROBE)
@@ -314,28 +175,14 @@ class SimpleProtossBot(BotAI):
      ):
 
         nexus.train(U.PROBE)
-
-
-    
-
-    
     
     async def manage_workers_and_gas(self):
-
-    # ==========================================================
-    # ONLY RUN AFTER RELOCATION IS COMPLETE
-    # ==========================================================
 
      if not self.relocation_complete:
         return
 
      if self.relocation_location is None:
         return
-
-
-    # ==========================================================
-    # FIND THE NEW NEXUS
-    # ==========================================================
 
      nexuses = self.structures(U.NEXUS).closer_than(
         5,
@@ -351,11 +198,6 @@ class SimpleProtossBot(BotAI):
 
      if not nexus.is_ready:
         return
-
-
-    # ==========================================================
-    # FIND GEYSERS AROUND THE NEW NEXUS
-    # ==========================================================
 
      geysers = self.vespene_geyser.closer_than(
         10,
@@ -365,38 +207,19 @@ class SimpleProtossBot(BotAI):
      if not geysers.exists:
         return
 
-
-    # ==========================================================
-    # FIND ASSIMILATORS ALREADY BUILT / BEING BUILT
-    # ==========================================================
-
      assimilators = self.structures(U.ASSIMILATOR).closer_than(
         10,
         nexus
      )
 
-
-    # ==========================================================
-    # BUILD ASSIMILATORS
-    #
-    # Build ONE at a time.
-    #
-    # We deliberately return immediately after issuing the
-    # build order so we don't try to use that same worker
-    # again during this iteration.
-    # ==========================================================
-
      for geyser in geysers:
 
-        # Is there already an Assimilator on this geyser?
         if assimilators.closer_than(1.5, geyser).exists:
             continue
 
-        # Don't start another one if we can't afford it.
         if not self.can_afford(U.ASSIMILATOR):
             break
 
-        # Find an available worker.
         available_workers = self.workers.idle
 
         if not available_workers.exists:
@@ -412,30 +235,12 @@ class SimpleProtossBot(BotAI):
             near=geyser,
             build_worker=worker
         )
-
-        # IMPORTANT:
-        # Stop here for this game step.
         return
-
-
-    # ==========================================================
-    # REFRESH ASSIMILATORS
-    # ==========================================================
 
      assimilators = self.structures(U.ASSIMILATOR).closer_than(
         10,
         nexus
      )
-
-
-    # ==========================================================
-    # PUT 3 WORKERS ON EACH COMPLETED ASSIMILATOR
-    #
-    # Only use IDLE workers.
-    #
-    # Workers currently constructing something won't be
-    # touched.
-    # ==========================================================
 
      for assimilator in assimilators.ready:
 
@@ -452,11 +257,6 @@ class SimpleProtossBot(BotAI):
                 assimilator
             )
 
-
-    # ==========================================================
-    # FIND MINERALS AROUND THE NEW NEXUS
-    # ==========================================================
-
      minerals = self.mineral_field.closer_than(
         10,
         nexus
@@ -464,11 +264,6 @@ class SimpleProtossBot(BotAI):
 
      if not minerals.exists:
         return
-
-
-    # ==========================================================
-    # SEND ALL REMAINING IDLE WORKERS TO MINERALS
-    # ==========================================================
 
      mineral_patch = minerals.closest_to(
         nexus
@@ -482,23 +277,11 @@ class SimpleProtossBot(BotAI):
 
     async def build_workers(self):
 
-    # ==========================================================
-    # Only start normal worker production after relocation.
-    # ==========================================================
-
      if not self.relocation_complete:
         return
 
-    # ==========================================================
-    # Stop once we have 22 workers.
-    # ==========================================================
-
-     if self.workers.amount >= self.worker_target:
+     if self.relocation_location is None:
         return
-
-    # ==========================================================
-    # Find our new Nexus.
-    # ==========================================================
 
      nexuses = self.structures(U.NEXUS).closer_than(
         5,
@@ -511,24 +294,21 @@ class SimpleProtossBot(BotAI):
      nexus = nexuses.closest_to(
         self.relocation_location
      )
-
+ 
      if not nexus.is_ready:
         return
 
-    # ==========================================================
-    # Make sure the Nexus isn't already making a worker.
-    # ==========================================================
-
-     if nexus.is_idle and self.can_afford(U.PROBE):
+     if self.workers.amount >= self.worker_target:
+        return
+ 
+     if (
+        nexus.is_idle
+        and self.can_afford(U.PROBE)
+        and self.supply_left > 0
+     ):
         nexus.train(U.PROBE)
 
-   
-   
     async def build_gas(self):
-
-    # ==========================================================
-    # ONLY RUN AFTER RELOCATION IS COMPLETE
-    # ==========================================================
 
      if not self.relocation_complete:
         return
@@ -536,11 +316,6 @@ class SimpleProtossBot(BotAI):
      if self.relocation_location is None:
         return
 
-
-    # ==========================================================
-    # FIND OUR NEW NEXUS
-    # ==========================================================
-
      nexuses = self.structures(U.NEXUS).closer_than(
         5,
         self.relocation_location
@@ -555,11 +330,6 @@ class SimpleProtossBot(BotAI):
 
      if not nexus.is_ready:
         return
-
-
-    # ==========================================================
-    # FIND THE TWO GEYSERS AT THE NEW BASE
-    # ==========================================================
 
      geysers = self.vespene_geyser.closer_than(
         10,
@@ -569,26 +339,14 @@ class SimpleProtossBot(BotAI):
      if not geysers.exists:
         return
 
-
-    # ==========================================================
-    # FIND EXISTING ASSIMILATORS AT THIS BASE
-    # ==========================================================
-
-     assimilators = self.structures(U.ASSIMILATOR).closer_than(
+     assimilators = self.structures(
+        U.ASSIMILATOR
+     ).closer_than(
         10,
         nexus
      )
 
-
-    # ==========================================================
-    # BUILD AN ASSIMILATOR ON EVERY MISSING GEYSER
-    # ==========================================================
-
      for geyser in geysers:
-
-        # ------------------------------------------------------
-        # Does this geyser already have an Assimilator?
-        # ------------------------------------------------------
 
         if assimilators.closer_than(
             1.5,
@@ -596,87 +354,44 @@ class SimpleProtossBot(BotAI):
         ).exists:
             continue
 
-
-        # ------------------------------------------------------
-        # We need 75 minerals.
-        # ------------------------------------------------------
-
         if not self.can_afford(U.ASSIMILATOR):
             return
 
-
-        # ------------------------------------------------------
-        # Prefer an idle worker near the new base.
-        # ------------------------------------------------------
-
-        workers_near_base = self.workers.closer_than(
+        workers = self.workers.closer_than(
             10,
             nexus
         )
 
-        if not workers_near_base.exists:
+        if not workers.exists:
             return
 
-
-        idle_workers = workers_near_base.idle
+        idle_workers = workers.idle
 
         if idle_workers.exists:
 
             worker = idle_workers.closest_to(
                 geyser
             )
-
         else:
-
-            # --------------------------------------------------
-            # If no worker is idle, take the worker closest
-            # to the geyser.
-            # --------------------------------------------------
-
-            worker = workers_near_base.closest_to(
+            worker = workers.closest_to(
                 geyser
             )
-
-
-        # ------------------------------------------------------
-        # Build the Assimilator.
-        # ------------------------------------------------------
 
         await self.build(
             U.ASSIMILATOR,
             near=geyser,
             build_worker=worker
         )
-
-        # ------------------------------------------------------
-        # Re-check on the next game step.
-        # ------------------------------------------------------
-
         return
 
 
-
-
-
-    
-  
-   
     async def manage_workers(self):
-
-    # ==========================================================
-    # ONLY MANAGE WORKERS AFTER RELOCATION IS COMPLETE
-    # ==========================================================
 
      if not self.relocation_complete:
         return
 
      if self.relocation_location is None:
         return
-
-
-    # ==========================================================
-    # FIND THE NEW NEXUS
-    # ==========================================================
 
      nexuses = self.structures(U.NEXUS).closer_than(
         5,
@@ -693,91 +408,65 @@ class SimpleProtossBot(BotAI):
      if not nexus.is_ready:
         return
 
-
-    # ==========================================================
-    # WORKER PRODUCTION
-    #
-    # Keep producing Probes until we have 22 workers.
-    # ==========================================================
-
-     if self.workers.amount < 22:
-
-        if (
-            self.can_afford(U.PROBE)
-            and nexus.is_idle
-        ):
-            nexus.train(U.PROBE)
-
-
-    # ==========================================================
-    # FIND THE ASSIMILATORS AT THE NEW BASE
-    # ==========================================================
-
-     assimilators = self.structures(U.ASSIMILATOR).closer_than(
+     assimilators = self.structures(
+        U.ASSIMILATOR
+     ).closer_than(
         10,
         nexus
-     )
+     ).ready
 
+     gas_workers_needed = 0
 
-    # ==========================================================
-    # GAS MANAGEMENT
-    #
-    # Each Assimilator wants 3 workers.
-    #
-    # IMPORTANT:
-    # We fill GAS FIRST.
-    # Only after gas is full do we assign workers to minerals.
-    # ==========================================================
+     for assimilator in assimilators:
 
-     for assimilator in assimilators.ready:
+        if assimilator.assigned_harvesters < 3:
 
-        gas_needed = 3 - assimilator.assigned_harvesters
-
-        if gas_needed <= 0:
-            continue
-
-
-        # ------------------------------------------------------
-        # First use idle workers.
-        # ------------------------------------------------------
-
-        for worker in self.workers.idle:
-
-            if gas_needed <= 0:
-                break
-
-            worker.gather(assimilator)
-            gas_needed -= 1
-
-
-        # ------------------------------------------------------
-        # If there aren't enough idle workers,
-        # take workers currently mining minerals.
-        # ------------------------------------------------------
-
-        if gas_needed > 0:
-
-            mineral_workers = self.workers.filter(
-                lambda w:
-                    w.is_gathering
-                    and w.distance_to(nexus) < 10
+            gas_workers_needed += (
+                3 - assimilator.assigned_harvesters
             )
 
-            for worker in mineral_workers:
+     if gas_workers_needed > 0:
 
-                if gas_needed <= 0:
+        candidates = self.workers.filter(
+            lambda worker:
+                worker.is_gathering
+                and worker.distance_to(nexus) < 10
+        )
+
+        for worker in candidates:
+
+            if gas_workers_needed <= 0:
+                break
+            target_gas = None
+
+            for assimilator in assimilators:
+
+                if assimilator.assigned_harvesters < 3:
+                    target_gas = assimilator
                     break
 
-                worker.gather(assimilator)
-                gas_needed -= 1
+            if target_gas is None:
+                break
 
+            worker.gather(target_gas)
 
-    # ==========================================================
-    # MINERAL MANAGEMENT
-    #
-    # Now that gas has been filled, send remaining idle workers
-    # to minerals.
-    # ==========================================================
+            gas_workers_needed -= 1
+
+     for worker in self.workers.idle:
+
+        target_gas = None
+
+        for assimilator in assimilators:
+
+            if assimilator.assigned_harvesters < 3:
+                target_gas = assimilator
+                break
+
+        if target_gas is not None:
+
+            worker.gather(target_gas)
+        else:
+            break
 
      minerals = self.mineral_field.closer_than(
         10,
@@ -788,64 +477,25 @@ class SimpleProtossBot(BotAI):
         return
 
 
-    # ==========================================================
-    # Spread idle workers over the mineral patches.
-    # ==========================================================
-
      for worker in self.workers.idle:
 
-        mineral = minerals.closest_to(worker)
+        mineral = minerals.closest_to(
+            worker
+        )
 
         worker.gather(mineral)
-
-
-
-
-
-
     # ---------- MAIN LOOP ----------
 
     
   
     async def on_step(self, iteration: int):
 
-    # ==========================================================
-    # 1. FIRST: complete the relocation experiment
-    # ==========================================================
-
      await self.start_relocation()
-
      if not self.relocation_complete:
         return
-
-
-    # ==========================================================
-    # 2. Build workers until we reach 22
-    # ==========================================================
-
      await self.build_workers()
-
-
-    # ==========================================================
-    # 3. Build both Assimilators at the new base
-    # ==========================================================
-
      await self.build_gas()
-
-
-    # ==========================================================
-    # 4. Keep workers assigned to gas/minerals
-    # ==========================================================
-
      await self.manage_workers()
-
-
-
-
-       
-
-        
-        
 
 
 # Run the game
