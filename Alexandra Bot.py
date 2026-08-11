@@ -37,11 +37,12 @@ class SimpleProtossBot(BotAI):
     
     def __init__(self):
      super().__init__()
-
+     self.expansion_number1 = random.randint(4, 10)
+     self.relocation_complete = False
      
     async def start_relocation(self):
 
-     expansion_number = random.randint(4, 10)
+     expansion_number = self.expansion_number1
 
      expansions = sorted(
         self.expansion_locations_list,
@@ -52,6 +53,9 @@ class SimpleProtossBot(BotAI):
  
      if not self.can_afford(U.NEXUS):
         return
+
+     for worker in self.workers:
+        worker.move(location)
 
      worker = self.workers.random
 
@@ -65,6 +69,18 @@ class SimpleProtossBot(BotAI):
         build_worker=worker
      )
 
+     nexus = self.structures(U.NEXUS).closer_than(
+        5,
+        location
+     )
+
+     if nexus.exists:
+
+        nexus = nexus.closest_to(location)
+
+        if nexus.is_ready:
+            self.relocation_complete = True
+
 
    
     # ---------- MAIN LOOP ----------
@@ -72,8 +88,13 @@ class SimpleProtossBot(BotAI):
     
   
     async def on_step(self, iteration: int):
-
+     
      await self.start_relocation()
+
+     if not self.relocation_complete:
+        return
+
+     print('HELLLOOOS')
      
 
 
