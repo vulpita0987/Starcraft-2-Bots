@@ -37,8 +37,9 @@ class SimpleProtossBot(BotAI):
     
     def __init__(self):
      super().__init__()
-     self.expansion_number1 = random.randint(4, 10)
+     self.expansion_number1 = random.randint(4, 8)
      self.relocation_complete = False
+     self.first_new_nexus_location = None
      
     async def start_relocation(self):
 
@@ -80,21 +81,30 @@ class SimpleProtossBot(BotAI):
 
         if nexus.is_ready:
             self.relocation_complete = True
+            self.first_new_nexus_location = location
 
 
-   
+    async def build_workers(self):
+
+     nexus = self.townhalls.closest_to(self.first_new_nexus_location)
+     if nexus.is_idle and self.can_afford(U.PROBE) and self.workers.closer_than(10, nexus).amount < 22:
+        nexus.train(U.PROBE)
+
+
     # ---------- MAIN LOOP ----------
 
     
   
     async def on_step(self, iteration: int):
-     
-     await self.start_relocation()
+
+     if self.relocation_complete == False:
+        await self.start_relocation()
 
      if not self.relocation_complete:
         return
 
-     print('HELLLOOOS')
+     await self.build_workers()
+     
      
 
 
@@ -138,3 +148,59 @@ if __name__ == "__main__":
 #         worker = self.workers.idle.random
 #         worker.gather(assim)
 # =============================================================================
+
+#Nexus
+#  │
+#  └── Gateway
+#        │
+#        └── Cybernetics Core
+#              │
+#              ├── Twilight Council
+#              │      ├── Templar Archives
+#              │      └── Dark Shrine
+#              │
+#              ├── Robotics Facility
+#              │      └── Robotics Bay
+#              │
+#              └── Stargate
+#                     │
+#                     └── Fleet Beacon
+
+#Gateway / Warp Gate
+
+#Zealot
+#Adept
+#Stalker
+#Sentry
+
+#Robotics Facility
+
+#Observer
+#Immortal
+#Warp Prism
+
+#Robotics Bay
+
+#Colossus
+#Disruptor
+
+#Stargate
+
+#Phoenix
+#Oracle
+#Void Ray
+#Carrier
+#Tempest
+
+#Templar Archives
+
+#High Templar
+#Archon
+
+#Dark Shrine
+
+#Dark Templar
+
+#Fleet Beacon
+
+#Mothership and higher Stargate technology
