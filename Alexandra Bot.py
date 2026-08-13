@@ -51,7 +51,21 @@ class SimpleProtossBot(BotAI):
      )
 
      location = expansions[expansion_number]
- 
+
+     nexus = self.structures(U.NEXUS).closer_than(
+        5,
+        location
+     )
+
+     if nexus.exists:
+
+        nexus = nexus.closest_to(location)
+
+        if nexus.is_ready:
+            self.relocation_complete = True
+            self.first_new_nexus_location = location
+            return
+
      if not self.can_afford(U.NEXUS):
         return
 
@@ -70,24 +84,21 @@ class SimpleProtossBot(BotAI):
         build_worker=worker
      )
 
-     nexus = self.structures(U.NEXUS).closer_than(
-        5,
-        location
-     )
-
-     if nexus.exists:
-
-        nexus = nexus.closest_to(location)
-
-        if nexus.is_ready:
-            self.relocation_complete = True
-            self.first_new_nexus_location = location
-
 
     async def build_workers(self):
 
+     print("BUILD WORKERS FUNCTION RUNNING")
+
      nexus = self.townhalls.closest_to(self.first_new_nexus_location)
-     if nexus.is_idle and self.can_afford(U.PROBE) and self.workers.closer_than(10, nexus).amount < 22:
+
+     print("Nexus:", nexus)
+     print("Nexus ready:", nexus.is_ready)
+     print("Nexus idle:", nexus.is_idle)
+     print("Can afford Probe:", self.can_afford(U.PROBE))
+     print("Worker count:", self.workers.amount)
+
+     if nexus.is_idle and self.can_afford(U.PROBE):
+        print("TRYING TO MAKE PROBE")
         nexus.train(U.PROBE)
 
 
@@ -149,6 +160,7 @@ if __name__ == "__main__":
 #         worker.gather(assim)
 # =============================================================================
 
+#Forge
 #Nexus
 #  │
 #  └── Gateway
