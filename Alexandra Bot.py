@@ -84,21 +84,50 @@ class SimpleProtossBot(BotAI):
         build_worker=worker
      )
 
+    async def manage_workers(self): # needs looking into
 
-    async def build_workers(self):
+     for nexus in self.townhalls.ready:
 
-     print("BUILD WORKERS FUNCTION RUNNING")
+        workers = self.workers.closer_than(10, nexus)
+
+        assimilators = self.structures(U.ASSIMILATOR).closer_than(
+            10,
+            nexus
+        ).ready
+
+        minerals = self.mineral_field.closer_than(
+            10,
+            nexus
+        )
+
+        for worker in workers:
+
+            if not worker.is_idle:
+                continue
+
+            gas_target = None
+
+            for assimilator in assimilators:
+
+                if assimilator.assigned_harvesters < 3:
+                    gas_target = assimilator
+                    break
+
+            if gas_target is not None:
+                worker.gather(gas_target)
+                continue
+
+            if minerals.exists:
+                mineral = minerals.closest_to(worker)
+                worker.gather(mineral)
+
+    async def build_workers(self): #needs looking into
 
      nexus = self.townhalls.closest_to(self.first_new_nexus_location)
 
-     print("Nexus:", nexus)
-     print("Nexus ready:", nexus.is_ready)
-     print("Nexus idle:", nexus.is_idle)
-     print("Can afford Probe:", self.can_afford(U.PROBE))
-     print("Worker count:", self.workers.amount)
+     workers = self.workers.closer_than(10, nexus)
 
-     if nexus.is_idle and self.can_afford(U.PROBE):
-        print("TRYING TO MAKE PROBE")
+     if workers.amount < 22 and nexus.is_idle and self.can_afford(U.PROBE):
         nexus.train(U.PROBE)
 
 
@@ -113,7 +142,7 @@ class SimpleProtossBot(BotAI):
 
      if not self.relocation_complete:
         return
-
+     await self.manage_workers()
      await self.build_workers()
      
      
