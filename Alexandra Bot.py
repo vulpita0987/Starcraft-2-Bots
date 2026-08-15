@@ -130,7 +130,30 @@ class SimpleProtossBot(BotAI):
      if workers.amount < 22 and nexus.is_idle and self.can_afford(U.PROBE):
         nexus.train(U.PROBE)
 
+    async def build_pylons(self): #Needs looking into
 
+     if self.supply_left > 5:
+        return
+
+     if not self.can_afford(U.PYLON):
+        return
+
+     if self.already_pending(U.PYLON):
+        return
+
+     nexus = self.townhalls.closest_to(
+        self.first_new_nexus_location
+     )
+
+     pylon_position = nexus.position.towards(
+        self.game_info.map_center,
+        5
+     )
+
+     await self.build(
+        U.PYLON,
+        near=pylon_position
+     )
     # ---------- MAIN LOOP ----------
 
     
