@@ -130,7 +130,7 @@ class SimpleProtossBot(BotAI):
      if workers.amount < 22 and nexus.is_idle and self.can_afford(U.PROBE):
         nexus.train(U.PROBE)
 
-    async def build_pylons(self): #Needs looking into
+    async def build_pylons(self):
 
      if self.supply_left > 5:
         return
@@ -145,15 +145,68 @@ class SimpleProtossBot(BotAI):
         self.first_new_nexus_location
      )
 
-     pylon_position = nexus.position.towards(
-        self.game_info.map_center,
-        5
+     for i in range(20):
+
+        angle = random.uniform(0, 2 * math.pi)
+        distance = random.uniform(5, 10)
+
+        position = Point2((
+            nexus.position.x + math.cos(angle) * distance,
+            nexus.position.y + math.sin(angle) * distance
+        ))
+
+        buildings = self.structures.closer_than(
+            5,
+            position
+        )
+
+        if buildings.exists:
+            continue
+
+        if not self.in_pathing_grid(position):
+            continue
+
+        await self.build(
+            U.PYLON,
+            near=position
+        )
+
+        return
+    
+    async def build_gas(self):
+
+     nexus = self.townhalls.closest_to(
+        self.first_new_nexus_location
      )
 
-     await self.build(
-        U.PYLON,
-        near=pylon_position
+     if not nexus.is_ready:
+        return
+
+     geysers = self.vespene_geyser.closer_than(
+        10,
+        nexus
      )
+
+     for geyser in geysers:
+
+        assimilators = self.structures(U.ASSIMILATOR).closer_than(
+            1.5,
+            geyser
+        )
+
+        if assimilators.exists:
+            continue
+
+        if not self.can_afford(U.ASSIMILATOR):
+            return
+
+        worker = self.workers.closest_to(geyser)
+
+        await self.build(
+            U.ASSIMILATOR,
+            near=geyser,
+            build_worker=worker
+        ) 
     # ---------- MAIN LOOP ----------
 
     
@@ -167,6 +220,8 @@ class SimpleProtossBot(BotAI):
         return
      await self.manage_workers()
      await self.build_workers()
+     await self.build_pylons()
+     await self.build_gas()
      
      
 
