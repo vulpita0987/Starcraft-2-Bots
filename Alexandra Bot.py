@@ -207,6 +207,35 @@ class SimpleProtossBot(BotAI):
             near=geyser,
             build_worker=worker
         ) 
+
+    async def build_forge(self):
+
+     nexus = self.townhalls.closest_to(
+        self.first_new_nexus_location
+     )
+
+     if not nexus.is_ready:
+        return
+
+     if self.can_afford(U.FORGE):
+
+        await self.build(
+            U.FORGE,
+            near=nexus
+        )
+
+#Next:
+
+#Gateway
+
+#Cybernetics Core
+
+#Stargate
+
+#Fleet Beacon
+
+#Carriers
+
     # ---------- MAIN LOOP ----------
 
     
@@ -222,6 +251,7 @@ class SimpleProtossBot(BotAI):
      await self.build_workers()
      await self.build_pylons()
      await self.build_gas()
+     await self.build_forge()
      
      
 
