@@ -217,12 +217,39 @@ class SimpleProtossBot(BotAI):
      if not nexus.is_ready:
         return
 
-     if self.can_afford(U.FORGE):
+     if (
+        self.can_afford(U.FORGE)
+        and self.structures(U.FORGE).amount < 1
+        and not self.already_pending(U.FORGE)
+     ):
 
         await self.build(
             U.FORGE,
             near=nexus
         )
+
+    async def build_cannons(self):
+
+     nexus = self.townhalls.closest_to(
+        self.first_new_nexus_location
+     )
+
+     if not nexus.is_ready:
+        return
+
+     if self.structures(U.FORGE).ready.amount < 1:
+        return
+
+     if self.structures(U.PHOTONCANNON).amount >= 4:
+        return
+
+     if not self.can_afford(U.PHOTONCANNON):
+        return
+
+     await self.build(
+        U.PHOTONCANNON,
+        near=nexus
+     )
 
 #Next:
 
@@ -252,6 +279,7 @@ class SimpleProtossBot(BotAI):
      await self.build_pylons()
      await self.build_gas()
      await self.build_forge()
+     await self.build_cannons()
      
      
 
