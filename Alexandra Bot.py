@@ -233,23 +233,11 @@ class SimpleProtossBot(BotAI):
      nexus = self.townhalls.closest_to(
         self.first_new_nexus_location
      )
+     location = nexus.position.towards(self.start_location, 8)
 
-     if not nexus.is_ready:
-        return
+     if nexus.is_ready and self.structures(U.FORGE).ready.amount and self.structures(U.PHOTONCANNON).amount < 4 and self.can_afford(U.PHOTONCANNON) and self.structures(U.PHOTONCANNON).filter(lambda cannon: not cannon.is_ready).amount < 4:
+        await self.build(U.PHOTONCANNON, near=location)
 
-     if self.structures(U.FORGE).ready.amount < 1:
-        return
-
-     if self.structures(U.PHOTONCANNON).amount >= 4:
-        return
-
-     if not self.can_afford(U.PHOTONCANNON):
-        return
-
-     await self.build(
-        U.PHOTONCANNON,
-        near=nexus
-     )
 
 #Next:
 
