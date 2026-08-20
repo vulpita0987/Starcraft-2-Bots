@@ -189,12 +189,7 @@ class SimpleProtossBot(BotAI):
 
      for geyser in geysers:
 
-        assimilators = self.structures(U.ASSIMILATOR).closer_than(
-            1.5,
-            geyser
-        )
-
-        if assimilators.exists:
+        if self.structures(U.ASSIMILATOR).closer_than(1.5, geyser).exists:
             continue
 
         if not self.can_afford(U.ASSIMILATOR):
@@ -206,7 +201,9 @@ class SimpleProtossBot(BotAI):
             U.ASSIMILATOR,
             near=geyser,
             build_worker=worker
-        ) 
+        )
+
+        return
 
     async def build_forge(self):
 
@@ -234,9 +231,13 @@ class SimpleProtossBot(BotAI):
         self.first_new_nexus_location
      )
      location = nexus.position.towards(self.start_location, 8)
+     location1 = nexus.position.towards(self.start_location, 8)
 
      if nexus.is_ready and self.structures(U.FORGE).ready.amount and self.structures(U.PHOTONCANNON).amount < 4 and self.can_afford(U.PHOTONCANNON) and self.structures(U.PHOTONCANNON).filter(lambda cannon: not cannon.is_ready).amount < 4:
         await self.build(U.PHOTONCANNON, near=location)
+
+     if nexus.is_ready and self.structures(U.FORGE).ready.amount and self.structures(U.PHOTONCANNON).amount < 4 and self.can_afford(U.PHOTONCANNON) and self.structures(U.PHOTONCANNON).filter(lambda cannon: not cannon.is_ready).amount < 4:
+             await self.build(U.PHOTONCANNON, near=location1)
 
 
 #Next:
