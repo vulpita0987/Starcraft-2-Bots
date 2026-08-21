@@ -239,6 +239,85 @@ class SimpleProtossBot(BotAI):
      if nexus.is_ready and self.structures(U.FORGE).ready.amount and self.structures(U.PHOTONCANNON).amount < 4 and self.can_afford(U.PHOTONCANNON) and self.structures(U.PHOTONCANNON).filter(lambda cannon: not cannon.is_ready).amount < 4:
              await self.build(U.PHOTONCANNON, near=location1)
 
+    async def build_carrier_tech(self):
+
+     nexus = self.townhalls.closest_to(
+        self.first_new_nexus_location
+     )
+
+     if not nexus.is_ready:
+        return
+
+    # --------------------------------------------------
+    # Decide which building needs to be built
+    # --------------------------------------------------
+
+     if not self.structures(U.GATEWAY).exists:
+        building = U.GATEWAY
+
+     elif not self.structures(U.GATEWAY).ready.exists:
+        return
+
+     elif not self.structures(U.CYBERNETICSCORE).exists:
+        building = U.CYBERNETICSCORE
+
+     elif not self.structures(U.CYBERNETICSCORE).ready.exists:
+        return
+
+     elif not self.structures(U.STARGATE).exists:
+        building = U.STARGATE
+
+     elif not self.structures(U.STARGATE).ready.exists:
+        return
+
+     elif not self.structures(U.FLEETBEACON).exists:
+        building = U.FLEETBEACON
+
+     else:
+        return
+
+    # --------------------------------------------------
+    # Can we afford the next building?
+    # --------------------------------------------------
+
+     if not self.can_afford(building):
+        return
+
+     if self.already_pending(building):
+        return
+
+    # --------------------------------------------------
+    # Find a position with plenty of space
+    # --------------------------------------------------
+
+     for i in range(20):
+
+        angle = random.uniform(0, 2 * math.pi)
+        distance = random.uniform(5, 10)
+
+        position = Point2((
+            nexus.position.x + math.cos(angle) * distance,
+            nexus.position.y + math.sin(angle) * distance
+        ))
+
+        buildings = self.structures.closer_than(
+            5,
+            position
+        )
+
+        if buildings.exists:
+            continue
+
+        if not self.in_pathing_grid(position):
+            continue
+
+        await self.build(
+            building,
+            near=position
+        )
+
+        return
+
 
 #Next:
 
@@ -269,6 +348,7 @@ class SimpleProtossBot(BotAI):
      await self.build_gas()
      await self.build_forge()
      await self.build_cannons()
+     await self.build_carrier_tech()
      
      
 
