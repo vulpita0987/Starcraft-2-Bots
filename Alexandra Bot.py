@@ -318,6 +318,276 @@ class SimpleProtossBot(BotAI):
 
         return
 
+    async def manage_carriers(self):
+    
+        # ----------------------------
+        # Build carriers
+        # ----------------------------
+         if self.structures(U.STARGATE).ready.exists:
+            for sg in self.structures(U.STARGATE).ready:
+                if (
+                    sg.is_idle
+                    and self.can_afford(U.CARRIER)
+                    and self.supply_left >= 6
+                ):
+                    sg.train(U.CARRIER)
+    
+         carriers = self.units(U.CARRIER)
+    
+         if not carriers:
+            return
+    
+        # ------------------------------------
+        # Expansion locations (same every game
+        # for the current map)
+        # ------------------------------------
+         if not hasattr(self, "carrier_locations"):
+            self.carrier_locations = list(self.expansion_locations_list)
+    
+        # ------------------------------------
+        # Store an index for EACH carrier
+        # ------------------------------------
+         if not hasattr(self, "carrier_targets"):
+            self.carrier_targets = {}
+    
+         for carrier in carriers:
+    
+            # Assign first destination when spawned
+            if carrier.tag not in self.carrier_targets:
+                self.carrier_targets[carrier.tag] = 0
+    
+            index = self.carrier_targets[carrier.tag]
+            target_location = self.carrier_locations[index]
+    
+            # Enemy structures close to this expansion
+            nearby = self.enemy_structures.closer_than(
+                20,
+                target_location
+            )
+    
+            # Attack buildings if there are any
+            if nearby.exists:
+    
+                target = nearby.closest_to(carrier)
+    
+                carrier.attack(target)
+    
+            else:
+    
+                # Fly to expansion
+                if carrier.distance_to(target_location) > 8:
+                    carrier.attack(target_location)
+    
+                else:
+                    # Expansion cleared
+                    index += 1
+    
+                    if index >= len(self.carrier_locations):
+                        index = 0
+    
+                    self.carrier_targets[carrier.tag] = index
+
+    async def manage_carriers(self):
+
+     print("===============================")
+     print("CARRIER FUNCTION START")
+     print("===============================")
+
+    # ==========================================================
+    # BUILD CARRIERS
+    # ==========================================================
+
+     stargates = self.structures(U.STARGATE).ready
+
+     print("Stargates:", stargates.amount)
+
+     for sg in stargates:
+
+        if (
+            sg.is_idle
+            and self.can_afford(U.CARRIER)
+            and self.supply_left >= 6
+        ):
+            print("BUILDING CARRIER")
+            sg.train(U.CARRIER)
+
+    # ==========================================================
+    # FIND OUR CARRIERS
+    # ==========================================================
+
+     carriers = self.units(U.CARRIER)
+
+     print("Carriers:", carriers.amount)
+
+     if not carriers.exists:
+        return
+
+    # ==========================================================
+    # GET ALL EXPANSION LOCATIONS
+    # ==========================================================
+
+     if not hasattr(self, "carrier_locations"):
+
+        self.carrier_locations = list(
+            self.expansion_locations_list
+        )
+
+        print(
+            "Carrier locations:",
+            len(self.carrier_locations)
+        )
+
+    # ==========================================================
+    # EACH CARRIER GETS ITS OWN TARGET NUMBER
+    # ==========================================================
+
+     if not hasattr(self, "carrier_targets"):
+        self.carrier_targets = {}
+
+    # ==========================================================
+    # CONTROL EACH CARRIER
+    # ==========================================================
+
+     for carrier in carriers:
+
+        print("-------------------------------")
+        print("Controlling Carrier:", carrier.tag)
+
+        # ------------------------------------------------------
+        # Give this carrier a starting target
+        # ------------------------------------------------------
+
+        if carrier.tag not in self.carrier_targets:
+
+            self.carrier_targets[carrier.tag] = 0
+
+            print(
+                "New carrier - starting at location 0"
+            )
+
+        # ------------------------------------------------------
+        # Get this carrier's current target
+        # ------------------------------------------------------
+
+        index = self.carrier_targets[carrier.tag]
+
+        target_location = self.carrier_locations[index]
+
+        print("Current target index:", index)
+        print("Current target:", target_location)
+
+        # ======================================================
+        # LOOK FOR ENEMY UNITS NEAR THE CURRENT LOCATION
+        # ======================================================
+
+        nearby_units = self.enemy_units.closer_than(
+            20,
+            target_location
+        )
+
+        # ======================================================
+        # LOOK FOR ENEMY STRUCTURES NEAR THE CURRENT LOCATION
+        # ======================================================
+
+        nearby_structures = self.enemy_structures.closer_than(
+            20,
+            target_location
+        )
+
+        print(
+            "Enemy units:",
+            nearby_units.amount
+        )
+
+        print(
+            "Enemy structures:",
+            nearby_structures.amount
+        )
+
+        # ======================================================
+        # PRIORITY 1:
+        # ATTACK ANY ENEMY UNIT
+        # ======================================================
+
+        if nearby_units.exists:
+
+            target = nearby_units.closest_to(carrier)
+
+            print(
+                "ENEMY UNIT FOUND - ATTACKING:",
+                target
+            )
+
+            carrier.attack(target)
+
+            continue
+
+        # ======================================================
+        # PRIORITY 2:
+        # ATTACK ANY ENEMY STRUCTURE
+        # ======================================================
+
+        if nearby_structures.exists:
+
+            target = nearby_structures.closest_to(carrier)
+
+            print(
+                "ENEMY STRUCTURE FOUND - ATTACKING:",
+                target
+            )
+
+            carrier.attack(target)
+
+            continue
+
+        # ======================================================
+        # NO ENEMY FOUND
+        # ======================================================
+
+        print("No enemy detected at this location.")
+
+        # ======================================================
+        # HAVE WE REACHED THIS LOCATION?
+        # ======================================================
+
+        if carrier.distance_to(target_location) <= 8:
+
+            print(
+                "LOCATION CLEARED - MOVING TO NEXT LOCATION"
+            )
+
+            # Move to the next expansion
+            index += 1
+
+            # If we reached the end of the list,
+            # start again from the beginning.
+            if index >= len(self.carrier_locations):
+
+                index = 0
+
+                print(
+                    "Reached end of map search - restarting"
+                )
+
+            self.carrier_targets[carrier.tag] = index
+
+            print(
+                "New target index:",
+                index
+            )
+
+            continue
+
+        # ======================================================
+        # STILL TRAVELLING TO CURRENT LOCATION
+        # ======================================================
+
+        print(
+            "Travelling to:",
+            target_location
+        )
+
+        carrier.move(target_location)
 
 #Next:
 
@@ -349,6 +619,7 @@ class SimpleProtossBot(BotAI):
      await self.build_forge()
      await self.build_cannons()
      await self.build_carrier_tech()
+     await self.manage_carriers()
      
      
 
