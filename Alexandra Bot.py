@@ -40,6 +40,12 @@ class SimpleProtossBot(BotAI):
      self.expansion_number1 = random.randint(4, 8)
      self.relocation_complete = False
      self.first_new_nexus_location = None
+     self.expansion_started = False
+     self.expansion_count = 0
+     self.expansion_worker = None
+     self.expansion_target = None
+     self.expansion_in_progress = False
+     
      
     async def start_relocation(self):
 
@@ -121,14 +127,21 @@ class SimpleProtossBot(BotAI):
                 mineral = minerals.closest_to(worker)
                 worker.gather(mineral)
 
-    async def build_workers(self): #needs looking into
+    async def build_workers(self):
 
-     nexus = self.townhalls.closest_to(self.first_new_nexus_location)
+     for nexus in self.townhalls.ready:
 
-     workers = self.workers.closer_than(10, nexus)
+        workers = self.workers.closer_than(
+            10,
+            nexus
+        )
 
-     if workers.amount < 22 and nexus.is_idle and self.can_afford(U.PROBE):
-        nexus.train(U.PROBE)
+        if (
+            workers.amount < 22
+            and nexus.is_idle
+            and self.can_afford(U.PROBE)
+        ):
+            nexus.train(U.PROBE)
 
     async def build_pylons(self):
 
@@ -589,6 +602,121 @@ class SimpleProtossBot(BotAI):
 
         carrier.move(target_location)
 
+    async def manage_expansions(self):
+
+    # --------------------------------------------------
+    # Do not expand until the first Carrier exists
+    # --------------------------------------------------
+
+     if not self.units(U.CARRIER).exists:
+        return
+
+    # --------------------------------------------------
+    # If we are already building an expansion,
+    # keep using the SAME worker and SAME location
+    # --------------------------------------------------
+
+     if self.expansion_in_progress:
+
+        worker = self.expansion_worker
+        location = self.expansion_target
+
+        # If the worker still exists, keep sending ONLY it
+        if worker is not None and worker.exists:
+
+            # Worker has not reached the location yet
+            if worker.distance_to(location) > 3:
+                worker.move(location)
+                return
+
+            # Worker has arrived
+            await self.build(
+                U.NEXUS,
+                near=location,
+                build_worker=worker
+            )
+
+            # We have given the build order
+            self.expansion_in_progress = False
+            self.expansion_worker = None
+            self.expansion_target = None
+
+            print("Expansion Nexus construction started.")
+
+            return
+
+        return
+
+    # --------------------------------------------------
+    # Don't start another Nexus if one is already
+    # being constructed
+    # --------------------------------------------------
+
+     if self.already_pending(U.NEXUS):
+        return
+
+    # --------------------------------------------------
+    # Need 400 minerals
+    # --------------------------------------------------
+
+     if not self.can_afford(U.NEXUS):
+        return
+
+    # --------------------------------------------------
+    # Find a safe expansion location
+    #
+    # Start with locations closest to our spawn.
+    # --------------------------------------------------
+
+     expansions = sorted(
+        self.expansion_locations_list,
+        key=lambda p: p.distance_to(self.start_location)
+     )
+
+     location = None
+
+     for candidate in expansions:
+
+        # Don't use a location that already has our Nexus
+        if self.structures(U.NEXUS).closer_than(
+            5,
+            candidate
+        ).exists:
+            continue
+
+        location = candidate
+        break
+
+    # No available location
+     if location is None:
+        return
+
+    # --------------------------------------------------
+    # Choose ONE worker
+    # --------------------------------------------------
+
+     worker = self.workers.idle.random
+
+     if worker is None:
+        return
+
+    # --------------------------------------------------
+    # Remember this worker and location
+    # --------------------------------------------------
+
+     self.expansion_worker = worker
+     self.expansion_target = location
+     self.expansion_in_progress = True
+ 
+     print("Expansion worker:", worker.tag)
+     print("Expansion location:", location)
+
+    # --------------------------------------------------
+    # Send ONLY this worker
+    # --------------------------------------------------
+
+     worker.move(location)
+    
 #Next:
 
 #Gateway
@@ -620,6 +748,8 @@ class SimpleProtossBot(BotAI):
      await self.build_cannons()
      await self.build_carrier_tech()
      await self.manage_carriers()
+
+     await self.manage_expansions()
      
      
 
