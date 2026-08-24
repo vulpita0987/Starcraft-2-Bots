@@ -605,14 +605,14 @@ class SimpleProtossBot(BotAI):
     async def manage_expansions(self):
 
     # --------------------------------------------------
-    # Do not expand until the first Carrier exists
+    # Can we afford another Nexus?
     # --------------------------------------------------
 
-     if not self.units(U.CARRIER).exists:
+     if not self.can_afford(U.NEXUS):
         return
 
     # --------------------------------------------------
-    # If we are already building an expansion,
+    # If an expansion is already being started,
     # keep using the SAME worker and SAME location
     # --------------------------------------------------
 
@@ -621,34 +621,36 @@ class SimpleProtossBot(BotAI):
         worker = self.expansion_worker
         location = self.expansion_target
 
-        # If the worker still exists, keep sending ONLY it
-        if worker is not None and worker.exists:
-
-            # Worker has not reached the location yet
-            if worker.distance_to(location) > 3:
-                worker.move(location)
-                return
-
-            # Worker has arrived
-            await self.build(
-                U.NEXUS,
-                near=location,
-                build_worker=worker
-            )
-
-            # We have given the build order
+        # Make sure the worker still exists
+        if worker is None or not worker.exists:
             self.expansion_in_progress = False
             self.expansion_worker = None
             self.expansion_target = None
-
-            print("Expansion Nexus construction started.")
-
             return
+
+        # Worker hasn't reached the expansion yet
+        if worker.distance_to(location) > 3:
+            worker.move(location)
+            return
+
+        # Worker has arrived - build the Nexus
+        await self.build(
+            U.NEXUS,
+            near=location,
+            build_worker=worker
+        )
+
+        print("Expansion Nexus construction started.")
+
+        # Clear expansion state
+        self.expansion_in_progress = False
+        self.expansion_worker = None
+        self.expansion_target = None
 
         return
 
     # --------------------------------------------------
-    # Don't start another Nexus if one is already
+    # Don't start another expansion if one is already
     # being constructed
     # --------------------------------------------------
 
@@ -656,16 +658,7 @@ class SimpleProtossBot(BotAI):
         return
 
     # --------------------------------------------------
-    # Need 400 minerals
-    # --------------------------------------------------
-
-     if not self.can_afford(U.NEXUS):
-        return
-
-    # --------------------------------------------------
-    # Find a safe expansion location
-    #
-    # Start with locations closest to our spawn.
+    # Find an expansion location
     # --------------------------------------------------
 
      expansions = sorted(
@@ -677,7 +670,8 @@ class SimpleProtossBot(BotAI):
 
      for candidate in expansions:
 
-        # Don't use a location that already has our Nexus
+        # Don't choose a location where we already
+        # have a Nexus
         if self.structures(U.NEXUS).closer_than(
             5,
             candidate
@@ -687,18 +681,18 @@ class SimpleProtossBot(BotAI):
         location = candidate
         break
 
-    # No available location
      if location is None:
         return
 
     # --------------------------------------------------
-    # Choose ONE worker
+    # Find ONE idle worker
     # --------------------------------------------------
 
-     worker = self.workers.idle.random
-
-     if worker is None:
+     if not self.workers.idle.exists:
+        print("No idle worker available for expansion.")
         return
+
+     worker = self.workers.idle.random
 
     # --------------------------------------------------
     # Remember this worker and location
@@ -707,7 +701,7 @@ class SimpleProtossBot(BotAI):
      self.expansion_worker = worker
      self.expansion_target = location
      self.expansion_in_progress = True
- 
+
      print("Expansion worker:", worker.tag)
      print("Expansion location:", location)
 
@@ -716,7 +710,7 @@ class SimpleProtossBot(BotAI):
     # --------------------------------------------------
 
      worker.move(location)
-    
+     
 #Next:
 
 #Gateway
