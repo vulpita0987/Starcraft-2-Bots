@@ -37,11 +37,12 @@ class SimpleProtossBot(BotAI):
     
     def __init__(self):
      super().__init__()
+
      self.expansion_number1 = random.randint(4, 8)
+
      self.relocation_complete = False
      self.first_new_nexus_location = None
-     self.expansion_started = False
-     self.expansion_count = 0
+
      self.expansion_worker = None
      self.expansion_target = None
      self.expansion_in_progress = False
@@ -605,52 +606,7 @@ class SimpleProtossBot(BotAI):
     async def manage_expansions(self):
 
     # --------------------------------------------------
-    # Can we afford another Nexus?
-    # --------------------------------------------------
-
-     if not self.can_afford(U.NEXUS):
-        return
-
-    # --------------------------------------------------
-    # If an expansion is already being started,
-    # keep using the SAME worker and SAME location
-    # --------------------------------------------------
-
-     if self.expansion_in_progress:
-
-        worker = self.expansion_worker
-        location = self.expansion_target
-
-        # Make sure the worker still exists
-        if worker is None or not worker.exists:
-            self.expansion_in_progress = False
-            self.expansion_worker = None
-            self.expansion_target = None
-            return
-
-        # Worker hasn't reached the expansion yet
-        if worker.distance_to(location) > 3:
-            worker.move(location)
-            return
-
-        # Worker has arrived - build the Nexus
-        await self.build(
-            U.NEXUS,
-            near=location,
-            build_worker=worker
-        )
-
-        print("Expansion Nexus construction started.")
-
-        # Clear expansion state
-        self.expansion_in_progress = False
-        self.expansion_worker = None
-        self.expansion_target = None
-
-        return
-
-    # --------------------------------------------------
-    # Don't start another expansion if one is already
+    # Don't build another Nexus if one is already
     # being constructed
     # --------------------------------------------------
 
@@ -658,7 +614,59 @@ class SimpleProtossBot(BotAI):
         return
 
     # --------------------------------------------------
-    # Find an expansion location
+    # Need 400 minerals
+    # --------------------------------------------------
+
+     if not self.can_afford(U.NEXUS):
+        return
+
+    # --------------------------------------------------
+    # If we already selected a worker and location,
+    # continue using that SAME worker and location
+    # --------------------------------------------------
+
+     if self.expansion_in_progress:
+
+        worker = self.expansion_worker
+        location = self.expansion_target
+
+        # Make sure the worker is still alive
+        if worker is not None and self.workers.find_by_tag(worker.tag):
+
+            # Worker has not reached the location yet
+            if worker.distance_to(location) > 3:
+
+                worker.move(location)
+
+                return
+
+            # Worker has arrived
+            await self.build(
+                U.NEXUS,
+                near=location,
+                build_worker=worker
+            )
+
+            print("Expansion Nexus construction started.")
+
+            # Clear the saved expansion information
+            self.expansion_in_progress = False
+            self.expansion_worker = None
+            self.expansion_target = None
+
+            return
+
+        # The worker died/disappeared.
+        # Cancel this expansion attempt so we can select
+        # another worker next frame.
+        self.expansion_in_progress = False
+        self.expansion_worker = None
+        self.expansion_target = None
+
+        return
+
+    # --------------------------------------------------
+    # Find an available expansion location
     # --------------------------------------------------
 
      expansions = sorted(
@@ -670,8 +678,7 @@ class SimpleProtossBot(BotAI):
 
      for candidate in expansions:
 
-        # Don't choose a location where we already
-        # have a Nexus
+        # Don't use a location that already has our Nexus
         if self.structures(U.NEXUS).closer_than(
             5,
             candidate
@@ -681,29 +688,33 @@ class SimpleProtossBot(BotAI):
         location = candidate
         break
 
+    # No available expansion location
      if location is None:
         return
 
     # --------------------------------------------------
-    # Find ONE idle worker
+    # Make sure we actually have an idle worker
     # --------------------------------------------------
 
      if not self.workers.idle.exists:
-        print("No idle worker available for expansion.")
         return
 
+    # Choose ONE worker
      worker = self.workers.idle.random
 
     # --------------------------------------------------
-    # Remember this worker and location
+    # Remember the worker and location
     # --------------------------------------------------
 
      self.expansion_worker = worker
      self.expansion_target = location
      self.expansion_in_progress = True
 
-     print("Expansion worker:", worker.tag)
-     print("Expansion location:", location)
+     print("===================================")
+     print("NEW EXPANSION STARTED")
+     print("Worker:", worker.tag)
+     print("Location:", location)
+     print("===================================")
 
     # --------------------------------------------------
     # Send ONLY this worker
@@ -743,7 +754,7 @@ class SimpleProtossBot(BotAI):
      await self.build_carrier_tech()
      await self.manage_carriers()
 
-     await self.manage_expansions()
+     #await self.manage_expansions()
      
      
 
