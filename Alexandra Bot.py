@@ -189,33 +189,87 @@ class SimpleProtossBot(BotAI):
     
     async def build_gas(self):
 
-     nexus = self.townhalls.closest_to(
+     if not self.relocation_complete:
+        return
+
+     if self.first_new_nexus_location is None:
+        return
+
+     nexuses = self.structures(U.NEXUS).closer_than(
+        5,
+        self.first_new_nexus_location
+     )
+
+     if not nexuses.exists:
+        return
+
+     nexus = nexuses.closest_to(
         self.first_new_nexus_location
      )
 
      if not nexus.is_ready:
         return
 
+    # Find the geysers at this base
      geysers = self.vespene_geyser.closer_than(
+        10,
+        nexus
+     )
+
+     if not geysers.exists:
+        return
+
+    # Find existing Assimilators
+     assimilators = self.structures(
+        U.ASSIMILATOR
+     ).closer_than(
         10,
         nexus
      )
 
      for geyser in geysers:
 
-        if self.structures(U.ASSIMILATOR).closer_than(1.5, geyser).exists:
+        # Already have an Assimilator here
+        if assimilators.closer_than(
+            1.5,
+            geyser
+        ).exists:
             continue
 
+        # Need 75 minerals
         if not self.can_afford(U.ASSIMILATOR):
             return
 
-        worker = self.workers.closest_to(geyser)
+        # Find workers near this base
+        workers = self.workers.closer_than(
+            10,
+            nexus
+        )
+
+        if not workers.exists:
+            return
+
+        # Prefer an idle worker
+        if workers.idle.exists:
+            worker = workers.idle.closest_to(
+                geyser
+            )
+        else:
+            worker = workers.closest_to(
+                geyser
+            )
+
+        print("BUILDING ASSIMILATOR")
+        print("Worker:", worker.tag)
+        print("Geyser:", geyser)
 
         await self.build(
             U.ASSIMILATOR,
             near=geyser,
             build_worker=worker
         )
+
+        print("ASSIMILATOR BUILD ORDER SENT")
 
         return
 
@@ -605,122 +659,29 @@ class SimpleProtossBot(BotAI):
 
     async def manage_expansions(self):
 
-    # --------------------------------------------------
-    # Don't build another Nexus if one is already
-    # being constructed
-    # --------------------------------------------------
+     print("1 - entered manage_expansions")
 
      if self.already_pending(U.NEXUS):
+        print("2 - Nexus already pending")
         return
 
-    # --------------------------------------------------
-    # Need 400 minerals
-    # --------------------------------------------------
+     print("3 - checking minerals")
 
      if not self.can_afford(U.NEXUS):
+        print("4 - cannot afford Nexus")
         return
 
-    # --------------------------------------------------
-    # If we already selected a worker and location,
-    # continue using that SAME worker and location
-    # --------------------------------------------------
-
-     if self.expansion_in_progress:
-
-        worker = self.expansion_worker
-        location = self.expansion_target
-
-        # Make sure the worker is still alive
-        if worker is not None and self.workers.find_by_tag(worker.tag):
-
-            # Worker has not reached the location yet
-            if worker.distance_to(location) > 3:
-
-                worker.move(location)
-
-                return
-
-            # Worker has arrived
-            await self.build(
-                U.NEXUS,
-                near=location,
-                build_worker=worker
-            )
-
-            print("Expansion Nexus construction started.")
-
-            # Clear the saved expansion information
-            self.expansion_in_progress = False
-            self.expansion_worker = None
-            self.expansion_target = None
-
-            return
-
-        # The worker died/disappeared.
-        # Cancel this expansion attempt so we can select
-        # another worker next frame.
-        self.expansion_in_progress = False
-        self.expansion_worker = None
-        self.expansion_target = None
-
-        return
-
-    # --------------------------------------------------
-    # Find an available expansion location
-    # --------------------------------------------------
-
-     expansions = sorted(
-        self.expansion_locations_list,
-        key=lambda p: p.distance_to(self.start_location)
-     )
-
-     location = None
-
-     for candidate in expansions:
-
-        # Don't use a location that already has our Nexus
-        if self.structures(U.NEXUS).closer_than(
-            5,
-            candidate
-        ).exists:
-            continue
-
-        location = candidate
-        break
-
-    # No available expansion location
-     if location is None:
-        return
-
-    # --------------------------------------------------
-    # Make sure we actually have an idle worker
-    # --------------------------------------------------
+     print("5 - can afford Nexus")
 
      if not self.workers.idle.exists:
+        print("6 - NO IDLE WORKERS")
         return
 
-    # Choose ONE worker
+     print("7 - idle worker exists")
+
      worker = self.workers.idle.random
-
-    # --------------------------------------------------
-    # Remember the worker and location
-    # --------------------------------------------------
-
-     self.expansion_worker = worker
-     self.expansion_target = location
-     self.expansion_in_progress = True
-
-     print("===================================")
-     print("NEW EXPANSION STARTED")
-     print("Worker:", worker.tag)
-     print("Location:", location)
-     print("===================================")
-
-    # --------------------------------------------------
-    # Send ONLY this worker
-    # --------------------------------------------------
-
-     worker.move(location)
+ 
+     print("8 - selected worker:", worker.tag)
      
 #Next:
 
@@ -754,7 +715,7 @@ class SimpleProtossBot(BotAI):
      await self.build_carrier_tech()
      await self.manage_carriers()
 
-     #await self.manage_expansions()
+     await self.manage_expansions()
      
      
 
