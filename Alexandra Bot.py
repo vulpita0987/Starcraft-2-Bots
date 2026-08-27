@@ -189,12 +189,15 @@ class SimpleProtossBot(BotAI):
     
     async def build_gas(self):
 
+    # Do nothing until relocation is complete
      if not self.relocation_complete:
         return
 
+    # We need to know where the first new Nexus is
      if self.first_new_nexus_location is None:
         return
 
+    # Find the Nexus at the relocated base
      nexuses = self.structures(U.NEXUS).closer_than(
         5,
         self.first_new_nexus_location
@@ -207,32 +210,33 @@ class SimpleProtossBot(BotAI):
         self.first_new_nexus_location
      )
 
+    # Wait until the Nexus is completely finished
      if not nexus.is_ready:
         return
 
-    # Find the geysers at this base
+    # Find geysers around this Nexus
      geysers = self.vespene_geyser.closer_than(
         10,
-        nexus
+        nexus.position
      )
 
      if not geysers.exists:
         return
 
-    # Find existing Assimilators
+    # Find existing Assimilators around this Nexus
      assimilators = self.structures(
         U.ASSIMILATOR
      ).closer_than(
         10,
-        nexus
+        nexus.position
      )
 
      for geyser in geysers:
 
-        # Already have an Assimilator here
+        # Skip geysers that already have an Assimilator
         if assimilators.closer_than(
             1.5,
-            geyser
+            geyser.position
         ).exists:
             continue
 
@@ -240,10 +244,10 @@ class SimpleProtossBot(BotAI):
         if not self.can_afford(U.ASSIMILATOR):
             return
 
-        # Find workers near this base
+        # Find workers near the relocated Nexus
         workers = self.workers.closer_than(
             10,
-            nexus
+            nexus.position
         )
 
         if not workers.exists:
@@ -252,20 +256,20 @@ class SimpleProtossBot(BotAI):
         # Prefer an idle worker
         if workers.idle.exists:
             worker = workers.idle.closest_to(
-                geyser
+                geyser.position
             )
         else:
             worker = workers.closest_to(
-                geyser
+                geyser.position
             )
 
         print("BUILDING ASSIMILATOR")
         print("Worker:", worker.tag)
-        print("Geyser:", geyser)
+        print("Geyser:", geyser.position)
 
         await self.build(
             U.ASSIMILATOR,
-            near=geyser,
+            near=geyser.position,
             build_worker=worker
         )
 
