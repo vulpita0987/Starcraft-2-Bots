@@ -187,17 +187,19 @@ class SimpleProtossBot(BotAI):
 
         return
     
+    
+   
     async def build_gas(self):
 
-    # Do nothing until relocation is complete
+    # Do not build gas until relocation is finished
      if not self.relocation_complete:
         return
 
-    # We need to know where the first new Nexus is
+    # We need to know where the relocated Nexus is
      if self.first_new_nexus_location is None:
         return
 
-    # Find the Nexus at the relocated base
+    # Find the relocated Nexus
      nexuses = self.structures(U.NEXUS).closer_than(
         5,
         self.first_new_nexus_location
@@ -210,11 +212,11 @@ class SimpleProtossBot(BotAI):
         self.first_new_nexus_location
      )
 
-    # Wait until the Nexus is completely finished
+    # Wait until the Nexus is finished
      if not nexus.is_ready:
         return
 
-    # Find geysers around this Nexus
+    # Find actual geyser UNITS near the relocated Nexus
      geysers = self.vespene_geyser.closer_than(
         10,
         nexus.position
@@ -223,7 +225,7 @@ class SimpleProtossBot(BotAI):
      if not geysers.exists:
         return
 
-    # Find existing Assimilators around this Nexus
+    # Find Assimilators already built at this base
      assimilators = self.structures(
         U.ASSIMILATOR
      ).closer_than(
@@ -233,7 +235,7 @@ class SimpleProtossBot(BotAI):
 
      for geyser in geysers:
 
-        # Skip geysers that already have an Assimilator
+        # Skip this geyser if it already has an Assimilator
         if assimilators.closer_than(
             1.5,
             geyser.position
@@ -265,17 +267,23 @@ class SimpleProtossBot(BotAI):
 
         print("BUILDING ASSIMILATOR")
         print("Worker:", worker.tag)
-        print("Geyser:", geyser.position)
+        print("Geyser position:", geyser.position)
 
+        # IMPORTANT:
+        # 'near' must be the actual geyser Unit,
+        # NOT geyser.position
         await self.build(
             U.ASSIMILATOR,
-            near=geyser.position,
+            near=geyser,
             build_worker=worker
         )
 
         print("ASSIMILATOR BUILD ORDER SENT")
 
         return
+
+
+
 
     async def build_forge(self):
 
@@ -719,7 +727,7 @@ class SimpleProtossBot(BotAI):
      await self.build_carrier_tech()
      await self.manage_carriers()
 
-     await self.manage_expansions()
+     #await self.manage_expansions()
      
      
 
