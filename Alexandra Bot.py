@@ -669,12 +669,16 @@ class SimpleProtossBot(BotAI):
 
         carrier.move(target_location)
 
+    
     async def manage_expansions(self):
 
      print("1 - entered manage_expansions")
 
-     if self.already_pending(U.NEXUS):
-        print("2 - Nexus already pending")
+    # We already started the first expansion.
+    # This replaces self.already_pending(U.NEXUS)
+    # and avoids python-sc2 parsing the Probe orders.
+     if self.second_nexus_started:
+        print("2 - second Nexus already started")
         return
 
      print("3 - checking minerals")
@@ -692,8 +696,46 @@ class SimpleProtossBot(BotAI):
      print("7 - idle worker exists")
 
      worker = self.workers.idle.random
- 
+
      print("8 - selected worker:", worker.tag)
+
+    # -------------------------------------------------
+    # FIND THE EXPANSION LOCATION
+    # -------------------------------------------------
+
+     expansions = [
+        location
+        for location in self.expansion_locations_list
+        if not self.structures(U.NEXUS).closer_than(5, location).exists
+     ]
+
+     if not expansions:
+        print("9 - NO AVAILABLE EXPANSION LOCATION")
+        return
+
+     expansion_location = expansions[0]
+
+     print("10 - expansion location:", expansion_location)
+
+    # -------------------------------------------------
+    # BUILD NEXUS
+    # -------------------------------------------------
+
+     print("11 - BUILDING NEXUS")
+
+     await self.build(
+        U.NEXUS,
+        near=expansion_location,
+        build_worker=worker
+     )
+
+    # Mark it immediately so this function cannot
+    # repeatedly issue another Nexus order.
+     self.second_nexus_started = True
+
+     print("12 - NEXUS BUILD ORDER SENT")
+
+
      
 #Next:
 
@@ -727,7 +769,7 @@ class SimpleProtossBot(BotAI):
      await self.build_carrier_tech()
      await self.manage_carriers()
 
-     #await self.manage_expansions()
+     await self.manage_expansions()
      
      
 
