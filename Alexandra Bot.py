@@ -46,6 +46,8 @@ class SimpleProtossBot(BotAI):
      self.expansion_worker = None
      self.expansion_target = None
      self.expansion_in_progress = False
+
+     self.second_nexus_started = False
      
      
     async def start_relocation(self):
@@ -190,16 +192,12 @@ class SimpleProtossBot(BotAI):
     
    
     async def build_gas(self):
-
-    # Do not build gas until relocation is finished
      if not self.relocation_complete:
         return
 
-    # We need to know where the relocated Nexus is
      if self.first_new_nexus_location is None:
         return
-
-    # Find the relocated Nexus
+     
      nexuses = self.structures(U.NEXUS).closer_than(
         5,
         self.first_new_nexus_location
@@ -212,11 +210,9 @@ class SimpleProtossBot(BotAI):
         self.first_new_nexus_location
      )
 
-    # Wait until the Nexus is finished
      if not nexus.is_ready:
         return
 
-    # Find actual geyser UNITS near the relocated Nexus
      geysers = self.vespene_geyser.closer_than(
         10,
         nexus.position
@@ -225,7 +221,6 @@ class SimpleProtossBot(BotAI):
      if not geysers.exists:
         return
 
-    # Find Assimilators already built at this base
      assimilators = self.structures(
         U.ASSIMILATOR
      ).closer_than(
@@ -235,7 +230,6 @@ class SimpleProtossBot(BotAI):
 
      for geyser in geysers:
 
-        # Skip this geyser if it already has an Assimilator
         if assimilators.closer_than(
             1.5,
             geyser.position
@@ -246,7 +240,6 @@ class SimpleProtossBot(BotAI):
         if not self.can_afford(U.ASSIMILATOR):
             return
 
-        # Find workers near the relocated Nexus
         workers = self.workers.closer_than(
             10,
             nexus.position
@@ -255,7 +248,6 @@ class SimpleProtossBot(BotAI):
         if not workers.exists:
             return
 
-        # Prefer an idle worker
         if workers.idle.exists:
             worker = workers.idle.closest_to(
                 geyser.position
@@ -269,9 +261,6 @@ class SimpleProtossBot(BotAI):
         print("Worker:", worker.tag)
         print("Geyser position:", geyser.position)
 
-        # IMPORTANT:
-        # 'near' must be the actual geyser Unit,
-        # NOT geyser.position
         await self.build(
             U.ASSIMILATOR,
             near=geyser,
@@ -328,10 +317,6 @@ class SimpleProtossBot(BotAI):
      if not nexus.is_ready:
         return
 
-    # --------------------------------------------------
-    # Decide which building needs to be built
-    # --------------------------------------------------
-
      if not self.structures(U.GATEWAY).exists:
         building = U.GATEWAY
 
@@ -356,9 +341,6 @@ class SimpleProtossBot(BotAI):
      else:
         return
 
-    # --------------------------------------------------
-    # Can we afford the next building?
-    # --------------------------------------------------
 
      if not self.can_afford(building):
         return
@@ -366,9 +348,6 @@ class SimpleProtossBot(BotAI):
      if self.already_pending(building):
         return
 
-    # --------------------------------------------------
-    # Find a position with plenty of space
-    # --------------------------------------------------
 
      for i in range(20):
 
@@ -400,9 +379,6 @@ class SimpleProtossBot(BotAI):
 
     async def manage_carriers(self):
     
-        # ----------------------------
-        # Build carriers
-        # ----------------------------
          if self.structures(U.STARGATE).ready.exists:
             for sg in self.structures(U.STARGATE).ready:
                 if (
@@ -417,35 +393,25 @@ class SimpleProtossBot(BotAI):
          if not carriers:
             return
     
-        # ------------------------------------
-        # Expansion locations (same every game
-        # for the current map)
-        # ------------------------------------
          if not hasattr(self, "carrier_locations"):
             self.carrier_locations = list(self.expansion_locations_list)
     
-        # ------------------------------------
-        # Store an index for EACH carrier
-        # ------------------------------------
          if not hasattr(self, "carrier_targets"):
             self.carrier_targets = {}
     
          for carrier in carriers:
     
-            # Assign first destination when spawned
             if carrier.tag not in self.carrier_targets:
                 self.carrier_targets[carrier.tag] = 0
     
             index = self.carrier_targets[carrier.tag]
             target_location = self.carrier_locations[index]
     
-            # Enemy structures close to this expansion
             nearby = self.enemy_structures.closer_than(
                 20,
                 target_location
             )
     
-            # Attack buildings if there are any
             if nearby.exists:
     
                 target = nearby.closest_to(carrier)
@@ -473,9 +439,6 @@ class SimpleProtossBot(BotAI):
      print("CARRIER FUNCTION START")
      print("===============================")
 
-    # ==========================================================
-    # BUILD CARRIERS
-    # ==========================================================
 
      stargates = self.structures(U.STARGATE).ready
 
@@ -491,9 +454,6 @@ class SimpleProtossBot(BotAI):
             print("BUILDING CARRIER")
             sg.train(U.CARRIER)
 
-    # ==========================================================
-    # FIND OUR CARRIERS
-    # ==========================================================
 
      carriers = self.units(U.CARRIER)
 
@@ -502,9 +462,6 @@ class SimpleProtossBot(BotAI):
      if not carriers.exists:
         return
 
-    # ==========================================================
-    # GET ALL EXPANSION LOCATIONS
-    # ==========================================================
 
      if not hasattr(self, "carrier_locations"):
 
@@ -517,25 +474,15 @@ class SimpleProtossBot(BotAI):
             len(self.carrier_locations)
         )
 
-    # ==========================================================
-    # EACH CARRIER GETS ITS OWN TARGET NUMBER
-    # ==========================================================
 
      if not hasattr(self, "carrier_targets"):
         self.carrier_targets = {}
-
-    # ==========================================================
-    # CONTROL EACH CARRIER
-    # ==========================================================
 
      for carrier in carriers:
 
         print("-------------------------------")
         print("Controlling Carrier:", carrier.tag)
 
-        # ------------------------------------------------------
-        # Give this carrier a starting target
-        # ------------------------------------------------------
 
         if carrier.tag not in self.carrier_targets:
 
@@ -545,10 +492,6 @@ class SimpleProtossBot(BotAI):
                 "New carrier - starting at location 0"
             )
 
-        # ------------------------------------------------------
-        # Get this carrier's current target
-        # ------------------------------------------------------
-
         index = self.carrier_targets[carrier.tag]
 
         target_location = self.carrier_locations[index]
@@ -556,18 +499,11 @@ class SimpleProtossBot(BotAI):
         print("Current target index:", index)
         print("Current target:", target_location)
 
-        # ======================================================
-        # LOOK FOR ENEMY UNITS NEAR THE CURRENT LOCATION
-        # ======================================================
 
         nearby_units = self.enemy_units.closer_than(
             20,
             target_location
         )
-
-        # ======================================================
-        # LOOK FOR ENEMY STRUCTURES NEAR THE CURRENT LOCATION
-        # ======================================================
 
         nearby_structures = self.enemy_structures.closer_than(
             20,
@@ -584,10 +520,6 @@ class SimpleProtossBot(BotAI):
             nearby_structures.amount
         )
 
-        # ======================================================
-        # PRIORITY 1:
-        # ATTACK ANY ENEMY UNIT
-        # ======================================================
 
         if nearby_units.exists:
 
@@ -602,11 +534,6 @@ class SimpleProtossBot(BotAI):
 
             continue
 
-        # ======================================================
-        # PRIORITY 2:
-        # ATTACK ANY ENEMY STRUCTURE
-        # ======================================================
-
         if nearby_structures.exists:
 
             target = nearby_structures.closest_to(carrier)
@@ -620,15 +547,9 @@ class SimpleProtossBot(BotAI):
 
             continue
 
-        # ======================================================
-        # NO ENEMY FOUND
-        # ======================================================
 
         print("No enemy detected at this location.")
 
-        # ======================================================
-        # HAVE WE REACHED THIS LOCATION?
-        # ======================================================
 
         if carrier.distance_to(target_location) <= 8:
 
@@ -636,11 +557,8 @@ class SimpleProtossBot(BotAI):
                 "LOCATION CLEARED - MOVING TO NEXT LOCATION"
             )
 
-            # Move to the next expansion
             index += 1
 
-            # If we reached the end of the list,
-            # start again from the beginning.
             if index >= len(self.carrier_locations):
 
                 index = 0
@@ -658,10 +576,6 @@ class SimpleProtossBot(BotAI):
 
             continue
 
-        # ======================================================
-        # STILL TRAVELLING TO CURRENT LOCATION
-        # ======================================================
-
         print(
             "Travelling to:",
             target_location
@@ -674,9 +588,6 @@ class SimpleProtossBot(BotAI):
 
      print("1 - entered manage_expansions")
 
-    # We already started the first expansion.
-    # This replaces self.already_pending(U.NEXUS)
-    # and avoids python-sc2 parsing the Probe orders.
      if self.second_nexus_started:
         print("2 - second Nexus already started")
         return
@@ -699,10 +610,6 @@ class SimpleProtossBot(BotAI):
 
      print("8 - selected worker:", worker.tag)
 
-    # -------------------------------------------------
-    # FIND THE EXPANSION LOCATION
-    # -------------------------------------------------
-
      expansions = [
         location
         for location in self.expansion_locations_list
@@ -717,10 +624,6 @@ class SimpleProtossBot(BotAI):
 
      print("10 - expansion location:", expansion_location)
 
-    # -------------------------------------------------
-    # BUILD NEXUS
-    # -------------------------------------------------
-
      print("11 - BUILDING NEXUS")
 
      await self.build(
@@ -729,8 +632,6 @@ class SimpleProtossBot(BotAI):
         build_worker=worker
      )
 
-    # Mark it immediately so this function cannot
-    # repeatedly issue another Nexus order.
      self.second_nexus_started = True
 
      print("12 - NEXUS BUILD ORDER SENT")
