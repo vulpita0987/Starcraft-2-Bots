@@ -1,774 +1,254 @@
-
-from sc2.bot_ai import BotAI
-from sc2.main import run_game
-
-#Game setup
-from sc2.data import Race, Difficulty
-from sc2.player import Bot, Computer
 from sc2 import maps
-from pathlib import Path
-
-#Units, structures, and abilities
-from sc2.ids.unit_typeid import UnitTypeId as U
+from sc2.bot_ai import BotAI
+from sc2.data import Difficulty, Race
 from sc2.ids.ability_id import AbilityId
-from sc2.ids.buff_id import BuffId
-from sc2.ids.upgrade_id import UpgradeId
-
-#Positioning & geometry
-from sc2.position import Point2
-from sc2.unit import Unit
-from sc2.units import Units
-
-#Events and game state
-from sc2.game_info import GameInfo
-from sc2.game_state import GameState
-
-import math
-import random
-
-
-map_path = maps.get("AbyssalReefLE")
+from sc2.ids.unit_typeid import UnitTypeId as U
+from sc2.main import run_game
+from sc2.player import Bot, Computer
 
 
 class SimpleProtossBot(BotAI):
+    # ---------- SETTINGS ----------
+    TARGET_BASES = 5
+    WORKERS_PER_BASE = 22
+    TARGET_STARGATES = 6
 
-   
-  
-    
-    def __init__(self):
-     super().__init__()
-
-     self.expansion_number1 = random.randint(4, 8)
-
-     self.relocation_complete = False
-     self.first_new_nexus_location = None
-
-     self.expansion_worker = None
-     self.expansion_target = None
-     self.expansion_in_progress = False
-
-     self.second_nexus_started = False
-     
-     
-    async def start_relocation(self):
-
-     expansion_number = self.expansion_number1
-
-     expansions = sorted(
-        self.expansion_locations_list,
-        key=lambda p: p.distance_to(self.start_location)
-     )
-
-     location = expansions[expansion_number]
-
-     nexus = self.structures(U.NEXUS).closer_than(
-        5,
-        location
-     )
-
-     if nexus.exists:
-
-        nexus = nexus.closest_to(location)
-
-        if nexus.is_ready:
-            self.relocation_complete = True
-            self.first_new_nexus_location = location
+    async def on_step(self, iteration: int):
+        # Do not throw Probes away if all Nexuses are destroyed.
+        if not self.townhalls.ready.exists:
             return
 
-     if not self.can_afford(U.NEXUS):
-        return
+        await self.manage_workers()
+        await self.manage_pylons()
+        await self.manage_expansions()
+        await self.manage_tech()
+        await self.manage_gas()
+        await self.manage_voidray_production()
+        await self.manage_voidray_attacks()
 
-     for worker in self.workers:
-        worker.move(location)
+    # ---------- WORKERS ----------
+    async def manage_workers(self):
+        worker_cap = self.TARGET_BASES * self.WORKERS_PER_BASE
 
-     worker = self.workers.random
+        # Build Probes up to 22 per Nexus.
+        if self.workers.amount < worker_cap and self.can_afford(U.PROBE):
+            for nexus in self.townhalls.ready.idle:
+                nexus.train(U.PROBE)
+                break
 
-     if worker.distance_to(location) > 3:
-        worker.move(location)
-        return
+        # Send idle Probes to gas first, then minerals.
+        # The try avoids the old ability 4135 worker-order error.
+        try:
+            idle_workers = self.workers.idle
+        except KeyError:
+            return
 
-     await self.build(
-        U.NEXUS,
-        near=location,
-        build_worker=worker
-     )
+        for worker in idle_workers:
+            gas_buildings = self.structures(U.ASSIMILATOR).ready.filter(
+                lambda gas: gas.assigned_harvesters < gas.ideal_harvesters
+            )
 
-    async def manage_workers(self): # needs looking into
-
-     for nexus in self.townhalls.ready:
-
-        workers = self.workers.closer_than(10, nexus)
-
-        assimilators = self.structures(U.ASSIMILATOR).closer_than(
-            10,
-            nexus
-        ).ready
-
-        minerals = self.mineral_field.closer_than(
-            10,
-            nexus
-        )
-
-        for worker in workers:
-
-            if not worker.is_idle:
+            if gas_buildings.exists:
+                worker.gather(gas_buildings.closest_to(worker))
                 continue
 
-            gas_target = None
-
-            for assimilator in assimilators:
-
-                if assimilator.assigned_harvesters < 3:
-                    gas_target = assimilator
-                    break
-
-            if gas_target is not None:
-                worker.gather(gas_target)
-                continue
+            minerals = self.mineral_field.closer_than(12, worker.position)
 
             if minerals.exists:
-                mineral = minerals.closest_to(worker)
-                worker.gather(mineral)
+                worker.gather(minerals.closest_to(worker))
 
-    async def build_workers(self):
-
-     for nexus in self.townhalls.ready:
-
-        workers = self.workers.closer_than(
-            10,
-            nexus
-        )
+    # ---------- PYLONS ----------
+    async def manage_pylons(self):
+        supply_needed = 2 if self.supply_used < 30 else 4
 
         if (
-            workers.amount < 22
-            and nexus.is_idle
-            and self.can_afford(U.PROBE)
+            self.supply_left < supply_needed
+            and self.already_pending(U.PYLON) == 0
+            and self.can_afford(U.PYLON)
+            and self.workers.exists
         ):
-            nexus.train(U.PROBE)
+            nexus = self.townhalls.ready.first
+            worker = self.workers.closest_to(nexus)
 
-    async def build_pylons(self):
-
-     if self.supply_left > 5:
-        return
-
-     if not self.can_afford(U.PYLON):
-        return
-
-     if self.already_pending(U.PYLON):
-        return
-
-     nexus = self.townhalls.closest_to(
-        self.first_new_nexus_location
-     )
-
-     for i in range(20):
-
-        angle = random.uniform(0, 2 * math.pi)
-        distance = random.uniform(5, 10)
-
-        position = Point2((
-            nexus.position.x + math.cos(angle) * distance,
-            nexus.position.y + math.sin(angle) * distance
-        ))
-
-        buildings = self.structures.closer_than(
-            5,
-            position
-        )
-
-        if buildings.exists:
-            continue
-
-        if not self.in_pathing_grid(position):
-            continue
-
-        await self.build(
-            U.PYLON,
-            near=position
-        )
-
-        return
-    
-    
-   
-    async def build_gas(self):
-     if not self.relocation_complete:
-        return
-
-     if self.first_new_nexus_location is None:
-        return
-     
-     nexuses = self.structures(U.NEXUS).closer_than(
-        5,
-        self.first_new_nexus_location
-     )
-
-     if not nexuses.exists:
-        return
-
-     nexus = nexuses.closest_to(
-        self.first_new_nexus_location
-     )
-
-     if not nexus.is_ready:
-        return
-
-     geysers = self.vespene_geyser.closer_than(
-        10,
-        nexus.position
-     )
-
-     if not geysers.exists:
-        return
-
-     assimilators = self.structures(
-        U.ASSIMILATOR
-     ).closer_than(
-        10,
-        nexus.position
-     )
-
-     for geyser in geysers:
-
-        if assimilators.closer_than(
-            1.5,
-            geyser.position
-        ).exists:
-            continue
-
-        # Need 75 minerals
-        if not self.can_afford(U.ASSIMILATOR):
-            return
-
-        workers = self.workers.closer_than(
-            10,
-            nexus.position
-        )
-
-        if not workers.exists:
-            return
-
-        if workers.idle.exists:
-            worker = workers.idle.closest_to(
-                geyser.position
-            )
-        else:
-            worker = workers.closest_to(
-                geyser.position
+            await self.build(
+                U.PYLON,
+                near=nexus,
+                build_worker=worker,
             )
 
-        print("BUILDING ASSIMILATOR")
-        print("Worker:", worker.tag)
-        print("Geyser position:", geyser.position)
+    # ---------- EXPANSIONS ----------
+    async def manage_expansions(self):
+        base_total = (
+            self.townhalls.ready.amount
+            + self.already_pending(U.NEXUS)
+        )
+
+        # Build one Nexus at a time, normally at the nearest free expansion.
+        # Wait for 16 workers per existing base before expanding again.
+        worker_requirement = self.townhalls.ready.amount * 16
+
+        if (
+            base_total >= self.TARGET_BASES
+            or self.already_pending(U.NEXUS) > 0
+            or self.workers.amount < worker_requirement
+            or not self.can_afford(U.NEXUS)
+            or not self.workers.exists
+        ):
+            return
+
+        location = await self.get_next_expansion()
+
+        if location is None:
+            return
+
+        worker = self.workers.closest_to(location)
 
         await self.build(
-            U.ASSIMILATOR,
-            near=geyser,
-            build_worker=worker
+            U.NEXUS,
+            near=location,
+            build_worker=worker,
         )
 
-        print("ASSIMILATOR BUILD ORDER SENT")
+    # ---------- BUILDINGS ----------
+    async def manage_tech(self):
+        pylons = self.structures(U.PYLON).ready
 
-        return
+        if not pylons.exists or not self.workers.exists:
+            return
 
+        pylon = pylons.closest_to(self.townhalls.ready.first)
 
+        # Gateway first.
+        if not self.structures(U.GATEWAY).exists:
+            await self.build_building(U.GATEWAY, pylon)
+            return
 
+        # Then Cybernetics Core.
+        if not self.structures(U.CYBERNETICSCORE).exists:
+            await self.build_building(U.CYBERNETICSCORE, pylon)
+            return
 
-    async def build_forge(self):
+        # Do not wait for two bases. Start Stargates as soon as the Core finishes.
+        if not self.structures(U.CYBERNETICSCORE).ready.exists:
+            return
 
-     nexus = self.townhalls.closest_to(
-        self.first_new_nexus_location
-     )
-
-     if not nexus.is_ready:
-        return
-
-     if (
-        self.can_afford(U.FORGE)
-        and self.structures(U.FORGE).amount < 1
-        and not self.already_pending(U.FORGE)
-     ):
-
-        await self.build(
-            U.FORGE,
-            near=nexus
+        stargate_total = (
+            self.structures(U.STARGATE).ready.amount
+            + self.already_pending(U.STARGATE)
         )
 
-    async def build_cannons(self):
+        if stargate_total < self.TARGET_STARGATES:
+            await self.build_building(U.STARGATE, pylon)
 
-     nexus = self.townhalls.closest_to(
-        self.first_new_nexus_location
-     )
-     location = nexus.position.towards(self.start_location, 8)
-     location1 = nexus.position.towards(self.start_location, 8)
+    async def build_building(self, building, near):
+        if (
+            self.already_pending(building) > 0
+            or not self.can_afford(building)
+            or not self.workers.exists
+        ):
+            return
 
-     if nexus.is_ready and self.structures(U.FORGE).ready.amount and self.structures(U.PHOTONCANNON).amount < 4 and self.can_afford(U.PHOTONCANNON) and self.structures(U.PHOTONCANNON).filter(lambda cannon: not cannon.is_ready).amount < 4:
-        await self.build(U.PHOTONCANNON, near=location)
-
-     if nexus.is_ready and self.structures(U.FORGE).ready.amount and self.structures(U.PHOTONCANNON).amount < 4 and self.can_afford(U.PHOTONCANNON) and self.structures(U.PHOTONCANNON).filter(lambda cannon: not cannon.is_ready).amount < 4:
-             await self.build(U.PHOTONCANNON, near=location1)
-
-    async def build_carrier_tech(self):
-
-     nexus = self.townhalls.closest_to(
-        self.first_new_nexus_location
-     )
-
-     if not nexus.is_ready:
-        return
-
-     if not self.structures(U.GATEWAY).exists:
-        building = U.GATEWAY
-
-     elif not self.structures(U.GATEWAY).ready.exists:
-        return
-
-     elif not self.structures(U.CYBERNETICSCORE).exists:
-        building = U.CYBERNETICSCORE
-
-     elif not self.structures(U.CYBERNETICSCORE).ready.exists:
-        return
-
-     elif not self.structures(U.STARGATE).exists:
-        building = U.STARGATE
-
-     elif not self.structures(U.STARGATE).ready.exists:
-        return
-
-     elif not self.structures(U.FLEETBEACON).exists:
-        building = U.FLEETBEACON
-
-     else:
-        return
-
-
-     if not self.can_afford(building):
-        return
-
-     if self.already_pending(building):
-        return
-
-
-     for i in range(20):
-
-        angle = random.uniform(0, 2 * math.pi)
-        distance = random.uniform(5, 10)
-
-        position = Point2((
-            nexus.position.x + math.cos(angle) * distance,
-            nexus.position.y + math.sin(angle) * distance
-        ))
-
-        buildings = self.structures.closer_than(
-            5,
-            position
-        )
-
-        if buildings.exists:
-            continue
-
-        if not self.in_pathing_grid(position):
-            continue
+        worker = self.workers.closest_to(near)
 
         await self.build(
             building,
-            near=position
+            near=near,
+            build_worker=worker,
         )
 
-        return
-
-    async def manage_carriers(self):
-    
-         if self.structures(U.STARGATE).ready.exists:
-            for sg in self.structures(U.STARGATE).ready:
-                if (
-                    sg.is_idle
-                    and self.can_afford(U.CARRIER)
-                    and self.supply_left >= 6
-                ):
-                    sg.train(U.CARRIER)
-    
-         carriers = self.units(U.CARRIER)
-    
-         if not carriers:
+    # ---------- GAS ----------
+    async def manage_gas(self):
+        if not self.structures(U.CYBERNETICSCORE).exists:
             return
-    
-         if not hasattr(self, "carrier_locations"):
-            self.carrier_locations = list(self.expansion_locations_list)
-    
-         if not hasattr(self, "carrier_targets"):
-            self.carrier_targets = {}
-    
-         for carrier in carriers:
-    
-            if carrier.tag not in self.carrier_targets:
-                self.carrier_targets[carrier.tag] = 0
-    
-            index = self.carrier_targets[carrier.tag]
-            target_location = self.carrier_locations[index]
-    
-            nearby = self.enemy_structures.closer_than(
-                20,
-                target_location
-            )
-    
-            if nearby.exists:
-    
-                target = nearby.closest_to(carrier)
-    
-                carrier.attack(target)
-    
-            else:
-    
-                # Fly to expansion
-                if carrier.distance_to(target_location) > 8:
-                    carrier.attack(target_location)
-    
-                else:
-                    # Expansion cleared
-                    index += 1
-    
-                    if index >= len(self.carrier_locations):
-                        index = 0
-    
-                    self.carrier_targets[carrier.tag] = index
 
-    async def manage_carriers(self):
+        # Build Assimilators only on the geysers beside each Nexus.
+        for nexus in self.townhalls.ready:
+            geysers = self.vespene_geyser.closer_than(15, nexus.position)
 
-     print("===============================")
-     print("CARRIER FUNCTION START")
-     print("===============================")
-
-
-     stargates = self.structures(U.STARGATE).ready
-
-     print("Stargates:", stargates.amount)
-
-     for sg in stargates:
-
-        if (
-            sg.is_idle
-            and self.can_afford(U.CARRIER)
-            and self.supply_left >= 6
-        ):
-            print("BUILDING CARRIER")
-            sg.train(U.CARRIER)
-
-
-     carriers = self.units(U.CARRIER)
-
-     print("Carriers:", carriers.amount)
-
-     if not carriers.exists:
-        return
-
-
-     if not hasattr(self, "carrier_locations"):
-
-        self.carrier_locations = list(
-            self.expansion_locations_list
-        )
-
-        print(
-            "Carrier locations:",
-            len(self.carrier_locations)
-        )
-
-
-     if not hasattr(self, "carrier_targets"):
-        self.carrier_targets = {}
-
-     for carrier in carriers:
-
-        print("-------------------------------")
-        print("Controlling Carrier:", carrier.tag)
-
-
-        if carrier.tag not in self.carrier_targets:
-
-            self.carrier_targets[carrier.tag] = 0
-
-            print(
-                "New carrier - starting at location 0"
-            )
-
-        index = self.carrier_targets[carrier.tag]
-
-        target_location = self.carrier_locations[index]
-
-        print("Current target index:", index)
-        print("Current target:", target_location)
-
-
-        nearby_units = self.enemy_units.closer_than(
-            20,
-            target_location
-        )
-
-        nearby_structures = self.enemy_structures.closer_than(
-            20,
-            target_location
-        )
-
-        print(
-            "Enemy units:",
-            nearby_units.amount
-        )
-
-        print(
-            "Enemy structures:",
-            nearby_structures.amount
-        )
-
-
-        if nearby_units.exists:
-
-            target = nearby_units.closest_to(carrier)
-
-            print(
-                "ENEMY UNIT FOUND - ATTACKING:",
-                target
-            )
-
-            carrier.attack(target)
-
-            continue
-
-        if nearby_structures.exists:
-
-            target = nearby_structures.closest_to(carrier)
-
-            print(
-                "ENEMY STRUCTURE FOUND - ATTACKING:",
-                target
-            )
-
-            carrier.attack(target)
-
-            continue
-
-
-        print("No enemy detected at this location.")
-
-
-        if carrier.distance_to(target_location) <= 8:
-
-            print(
-                "LOCATION CLEARED - MOVING TO NEXT LOCATION"
-            )
-
-            index += 1
-
-            if index >= len(self.carrier_locations):
-
-                index = 0
-
-                print(
-                    "Reached end of map search - restarting"
+            for geyser in geysers:
+                existing_assimilator = self.structures(U.ASSIMILATOR).closer_than(
+                    1,
+                    geyser.position,
                 )
 
-            self.carrier_targets[carrier.tag] = index
+                if (
+                    existing_assimilator.exists
+                    or not self.can_afford(U.ASSIMILATOR)
+                    or not self.workers.exists
+                ):
+                    continue
 
-            print(
-                "New target index:",
-                index
-            )
+                # Avoid select_build_worker(), which caused the old error.
+                worker = self.workers.closest_to(geyser.position)
+                worker.build(U.ASSIMILATOR, geyser)
 
-            continue
+                # Only order one gas building per game step.
+                return
 
-        print(
-            "Travelling to:",
-            target_location
+    # ---------- VOID RAY PRODUCTION ----------
+    async def manage_voidray_production(self):
+        for stargate in self.structures(U.STARGATE).ready.idle:
+            if self.can_afford(U.VOIDRAY):
+                stargate.train(U.VOIDRAY)
+
+    # ---------- VOID RAY ATTACKS ----------
+    async def manage_voidray_attacks(self):
+        voidrays = self.units(U.VOIDRAY)
+
+        # Attack immediately when the first Void Ray exists.
+        if not voidrays.exists:
+            return
+
+        enemy_main = self.enemy_start_locations[0]
+
+        # Only start sweeping once the enemy main is visible and has no buildings.
+        enemy_main_destroyed = (
+            self.is_visible(enemy_main)
+            and not self.enemy_structures.closer_than(20, enemy_main).exists
         )
 
-        carrier.move(target_location)
+        if enemy_main_destroyed:
+            if not hasattr(self, "sweep_index"):
+                self.sweep_index = 0
 
-    
-    async def manage_expansions(self):
+            sweep_target = self.expansion_locations_list[self.sweep_index]
 
-     print("1 - entered manage_expansions")
+            # Move the group to the next location after it reaches this one.
+            if all(vr.distance_to(sweep_target) < 10 for vr in voidrays):
+                self.sweep_index = (
+                    self.sweep_index + 1
+                ) % len(self.expansion_locations_list)
 
-     if self.second_nexus_started:
-        print("2 - second Nexus already started")
-        return
+                sweep_target = self.expansion_locations_list[
+                    self.sweep_index
+                ]
 
-     print("3 - checking minerals")
+            for vr in voidrays:
+                # attack(point) is an attack-move order.
+                vr.attack(sweep_target)
 
-     if not self.can_afford(U.NEXUS):
-        print("4 - cannot afford Nexus")
-        return
+            return
 
-     print("5 - can afford Nexus")
+        targets = (self.enemy_units | self.enemy_structures).filter(
+            lambda unit: unit.can_be_attacked
+        )
 
-     if not self.workers.idle.exists:
-        print("6 - NO IDLE WORKERS")
-        return
+        for vr in voidrays:
+            if vr.weapon_cooldown > 0:
+                vr(AbilityId.EFFECT_VOIDRAYPRISMATICALIGNMENT)
 
-     print("7 - idle worker exists")
-
-     worker = self.workers.idle.random
-
-     print("8 - selected worker:", worker.tag)
-
-     expansions = [
-        location
-        for location in self.expansion_locations_list
-        if not self.structures(U.NEXUS).closer_than(5, location).exists
-     ]
-
-     if not expansions:
-        print("9 - NO AVAILABLE EXPANSION LOCATION")
-        return
-
-     expansion_location = expansions[0]
-
-     print("10 - expansion location:", expansion_location)
-
-     print("11 - BUILDING NEXUS")
-
-     await self.build(
-        U.NEXUS,
-        near=expansion_location,
-        build_worker=worker
-     )
-
-     self.second_nexus_started = True
-
-     print("12 - NEXUS BUILD ORDER SENT")
+            if targets.exists:
+                vr.attack(targets.closest_to(vr))
+            else:
+                vr.attack(enemy_main)
 
 
-     
-#Next:
-
-#Gateway
-
-#Cybernetics Core
-
-#Stargate
-
-#Fleet Beacon
-
-#Carriers
-
-    # ---------- MAIN LOOP ----------
-
-    
-  
-    async def on_step(self, iteration: int):
-
-     if self.relocation_complete == False:
-        await self.start_relocation()
-
-     if not self.relocation_complete:
-        return
-     await self.manage_workers()
-     await self.build_workers()
-     await self.build_pylons()
-     await self.build_gas()
-     await self.build_forge()
-     await self.build_cannons()
-     await self.build_carrier_tech()
-     await self.manage_carriers()
-
-     await self.manage_expansions()
-     
-     
-
-
-# Run the game
 if __name__ == "__main__":
     run_game(
-        map_path,
-        [Bot(Race.Protoss, SimpleProtossBot()), Computer(Race.Terran, Difficulty.Easy)],
+        maps.get("AbyssalReefLE"),
+        [
+            Bot(Race.Protoss, SimpleProtossBot()),
+            Computer(Race.Terran, Difficulty.Easy),
+        ],
         realtime=True,
     )
-
-# Structures  instead of Units - for buildings 
-# Units for Litlle Moving Things
-# =============================================================================
-# OWAIN'S COMMENT - SUGGESTED FIX (COMMENTED OUT, SO THIS DOES NOT RUN)
-# =============================================================================
-# Alexandra's active code above is unchanged. BurnySC2 7 separates mobile units
-# from buildings. Pylons and Assimilators therefore need to be checked through
-# self.structures instead of self.units. Otherwise the completed Pylon count can
-# remain zero and the bot can keep ordering another Pylon.
-#
-# Suggested replacement for build_initial_pylon:
-#
-# async def build_initial_pylon(self):
-#     if (
-#         self.structures(U.PYLON).amount == 0
-#         and self.can_afford(U.PYLON)
-#         and not self.already_pending(U.PYLON)
-#     ):
-#         choke = self.main_base_ramp.top_center
-#         safe_pos = choke.towards(self.start_location, distance=3)
-#         await self.build(U.PYLON, near=safe_pos)
-#
-# Suggested replacement inside fill_gas:
-#
-# for assim in self.structures(U.ASSIMILATOR).ready:
-#     while (
-#         assim.assigned_harvesters < assim.ideal_harvesters
-#         and self.workers.idle.exists
-#     ):
-#         worker = self.workers.idle.random
-#         worker.gather(assim)
-# =============================================================================
-
-#Forge
-#Nexus
-#  │
-#  └── Gateway
-#        │
-#        └── Cybernetics Core
-#              │
-#              ├── Twilight Council
-#              │      ├── Templar Archives
-#              │      └── Dark Shrine
-#              │
-#              ├── Robotics Facility
-#              │      └── Robotics Bay
-#              │
-#              └── Stargate
-#                     │
-#                     └── Fleet Beacon
-
-#Gateway / Warp Gate
-
-#Zealot
-#Adept
-#Stalker
-#Sentry
-
-#Robotics Facility
-
-#Observer
-#Immortal
-#Warp Prism
-
-#Robotics Bay
-
-#Colossus
-#Disruptor
-
-#Stargate
-
-#Phoenix
-#Oracle
-#Void Ray
-#Carrier
-#Tempest
-
-#Templar Archives
-
-#High Templar
-#Archon
-
-#Dark Shrine
-
-#Dark Templar
-
-#Fleet Beacon
-
-#Mothership and higher Stargate technology
