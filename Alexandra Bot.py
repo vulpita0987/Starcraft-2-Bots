@@ -2,253 +2,439 @@ from sc2 import maps
 from sc2.bot_ai import BotAI
 from sc2.data import Difficulty, Race
 from sc2.ids.ability_id import AbilityId
-from sc2.ids.unit_typeid import UnitTypeId as U
+from sc2.ids.buff_id import BuffId
+from sc2.ids.unit_typeid import UnitTypeId
 from sc2.main import run_game
 from sc2.player import Bot, Computer
 
 
-class SimpleProtossBot(BotAI):
-    # ---------- SETTINGS ----------
-    TARGET_BASES = 5
-    WORKERS_PER_BASE = 22
-    TARGET_STARGATES = 6
+class ThreebaseVoidrayBot(BotAI):
+    async def on_start(self):
+        # Compatibility for SC2 build 97563's missing Probe gather ability.
+        if 4135 not in self.game_data.abilities:
+            gather = self.game_data.abilities.get(
+                AbilityId.HARVEST_GATHER.value
+            )
+            if gather is not None:
+                self.game_data.abilities[4135] = gather
 
     async def on_step(self, iteration: int):
-        # Do not throw Probes away if all Nexuses are destroyed.
-        if not self.townhalls.ready.exists:
+        target_base_count = 2
+        target_stargate_count = 2
+
+        if iteration == 0:
+            await self.chat_send("(glhf)")
+
+        if not self.townhalls.ready:
+            for worker in self.workers:
+                worker.attack(self.enemy_start_locations[0])
             return
 
-        await self.manage_workers()
-        await self.manage_pylons()
-        await self.manage_expansions()
-        await self.manage_tech()
-        await self.manage_gas()
-        await self.manage_voidray_production()
-        await self.manage_voidray_attacks()
+        nexus = self.townhalls.ready.random
 
-    # ---------- WORKERS ----------
-    async def manage_workers(self):
-        worker_cap = self.TARGET_BASES * self.WORKERS_PER_BASE
-
-        # Build Probes up to 22 per Nexus.
-        if self.workers.amount < worker_cap and self.can_afford(U.PROBE):
-            for nexus in self.townhalls.ready.idle:
-                nexus.train(U.PROBE)
-                break
-
-        # Send idle Probes to gas first, then minerals.
-        # The try avoids the old ability 4135 worker-order error.
-        try:
-            idle_workers = self.workers.idle
-        except KeyError:
-            return
-
-        for worker in idle_workers:
-            gas_buildings = self.structures(U.ASSIMILATOR).ready.filter(
-                lambda gas: gas.assigned_harvesters < gas.ideal_harvesters
-            )
-
-            if gas_buildings.exists:
-                worker.gather(gas_buildings.closest_to(worker))
-                continue
-
-            minerals = self.mineral_field.closer_than(12, worker.position)
-
-            if minerals.exists:
-                worker.gather(minerals.closest_to(worker))
-
-    # ---------- PYLONS ----------
-    async def manage_pylons(self):
-        supply_needed = 2 if self.supply_used < 30 else 4
-
+        # Chronoboost busy Nexuses.
         if (
-            self.supply_left < supply_needed
-            and self.already_pending(U.PYLON) == 0
-            and self.can_afford(U.PYLON)
-            and self.workers.exists
+            not nexus.is_idle
+            and not nexus.has_buff(BuffId.CHRONOBOOSTENERGYCOST)
         ):
-            nexus = self.townhalls.ready.first
-            worker = self.workers.closest_to(nexus)
+            nexuses = self.structures(UnitTypeId.NEXUS)
+            abilities = await self.get_available_abilities(nexuses)
 
-            await self.build(
-                U.PYLON,
-                near=nexus,
-                build_worker=worker,
-            )
-
-    # ---------- EXPANSIONS ----------
-    async def manage_expansions(self):
-        base_total = (
-            self.townhalls.ready.amount
-            + self.already_pending(U.NEXUS)
-        )
-
-        # Build one Nexus at a time, normally at the nearest free expansion.
-        # Wait for 16 workers per existing base before expanding again.
-        worker_requirement = self.townhalls.ready.amount * 16
-
-        if (
-            base_total >= self.TARGET_BASES
-            or self.already_pending(U.NEXUS) > 0
-            or self.workers.amount < worker_requirement
-            or not self.can_afford(U.NEXUS)
-            or not self.workers.exists
-        ):
-            return
-
-        location = await self.get_next_expansion()
-
-        if location is None:
-            return
-
-        worker = self.workers.closest_to(location)
-
-        await self.build(
-            U.NEXUS,
-            near=location,
-            build_worker=worker,
-        )
-
-    # ---------- BUILDINGS ----------
-    async def manage_tech(self):
-        pylons = self.structures(U.PYLON).ready
-
-        if not pylons.exists or not self.workers.exists:
-            return
-
-        pylon = pylons.closest_to(self.townhalls.ready.first)
-
-        # Gateway first.
-        if not self.structures(U.GATEWAY).exists:
-            await self.build_building(U.GATEWAY, pylon)
-            return
-
-        # Then Cybernetics Core.
-        if not self.structures(U.CYBERNETICSCORE).exists:
-            await self.build_building(U.CYBERNETICSCORE, pylon)
-            return
-
-        # Do not wait for two bases. Start Stargates as soon as the Core finishes.
-        if not self.structures(U.CYBERNETICSCORE).ready.exists:
-            return
-
-        stargate_total = (
-            self.structures(U.STARGATE).ready.amount
-            + self.already_pending(U.STARGATE)
-        )
-
-        if stargate_total < self.TARGET_STARGATES:
-            await self.build_building(U.STARGATE, pylon)
-
-    async def build_building(self, building, near):
-        if (
-            self.already_pending(building) > 0
-            or not self.can_afford(building)
-            or not self.workers.exists
-        ):
-            return
-
-        worker = self.workers.closest_to(near)
-
-        await self.build(
-            building,
-            near=near,
-            build_worker=worker,
-        )
-
-    # ---------- GAS ----------
-    async def manage_gas(self):
-        if not self.structures(U.CYBERNETICSCORE).exists:
-            return
-
-        # Build Assimilators only on the geysers beside each Nexus.
-        for nexus in self.townhalls.ready:
-            geysers = self.vespene_geyser.closer_than(15, nexus.position)
-
-            for geyser in geysers:
-                existing_assimilator = self.structures(U.ASSIMILATOR).closer_than(
-                    1,
-                    geyser.position,
-                )
-
+            for loop_nexus, nexus_abilities in zip(nexuses, abilities):
                 if (
-                    existing_assimilator.exists
-                    or not self.can_afford(U.ASSIMILATOR)
-                    or not self.workers.exists
+                    AbilityId.EFFECT_CHRONOBOOSTENERGYCOST
+                    in nexus_abilities
                 ):
-                    continue
+                    loop_nexus(
+                        AbilityId.EFFECT_CHRONOBOOSTENERGYCOST,
+                        nexus,
+                    )
+                    break
 
-                # Avoid select_build_worker(), which caused the old error.
-                worker = self.workers.closest_to(geyser.position)
-                worker.build(U.ASSIMILATOR, geyser)
-
-                # Only order one gas building per game step.
-                return
-
-    # ---------- VOID RAY PRODUCTION ----------
-    async def manage_voidray_production(self):
-        for stargate in self.structures(U.STARGATE).ready.idle:
-            if self.can_afford(U.VOIDRAY):
-                stargate.train(U.VOIDRAY)
-
-    # ---------- VOID RAY ATTACKS ----------
-    async def manage_voidray_attacks(self):
-        voidrays = self.units(U.VOIDRAY)
-
-        # Attack immediately when the first Void Ray exists.
-        if not voidrays.exists:
-            return
-
+        voidrays = self.units(UnitTypeId.VOIDRAY)
         enemy_main = self.enemy_start_locations[0]
 
-        # Only start sweeping once the enemy main is visible and has no buildings.
-        enemy_main_destroyed = (
+        if not hasattr(self, "enemy_main_destroyed"):
+            self.enemy_main_destroyed = False
+
+        if (
             self.is_visible(enemy_main)
-            and not self.enemy_structures.closer_than(20, enemy_main).exists
+            and not self.enemy_structures.closer_than(
+                20,
+                enemy_main,
+            ).exists
+        ):
+            self.enemy_main_destroyed = True
+
+        # With more than 15 Void Rays, keep five at home.
+        if voidrays.amount > 15:
+            self.manage_large_voidray_force(voidrays)
+
+        # Normal attack logic for 6–15 Void Rays.
+        elif voidrays.amount > 5:
+            if self.enemy_main_destroyed:
+                if not hasattr(self, "sweep_index"):
+                    self.sweep_index = 0
+
+                sweep_locations = list(
+                    self.expansion_locations_list
+                )
+
+                if sweep_locations:
+                    sweep_target = sweep_locations[
+                        self.sweep_index
+                    ]
+
+                    if all(
+                        voidray.distance_to(sweep_target) < 10
+                        for voidray in voidrays
+                    ):
+                        self.sweep_index = (
+                            self.sweep_index + 1
+                        ) % len(sweep_locations)
+
+                        sweep_target = sweep_locations[
+                            self.sweep_index
+                        ]
+
+                    for voidray in voidrays:
+                        voidray.attack(sweep_target)
+
+            else:
+                for voidray in voidrays:
+                    if voidray.weapon_cooldown > 0:
+                        voidray(
+                            AbilityId
+                            .EFFECT_VOIDRAYPRISMATICALIGNMENT
+                        )
+
+                    targets = (
+                        self.enemy_units
+                        | self.enemy_structures
+                    ).filter(
+                        lambda enemy: enemy.can_be_attacked
+                    )
+
+                    if targets:
+                        voidray.attack(
+                            targets.closest_to(voidray)
+                        )
+                    else:
+                        voidray.attack(enemy_main)
+
+        # Void Rays get first spending priority.
+        for stargate in self.structures(
+            UnitTypeId.STARGATE
+        ).ready.idle:
+            if self.can_afford(UnitTypeId.VOIDRAY):
+                stargate.train(UnitTypeId.VOIDRAY)
+
+        await self.distribute_workers()
+
+        # Build Pylons when supply is getting low.
+        if (
+            (
+                self.supply_left < 2
+                and self.already_pending(
+                    UnitTypeId.PYLON
+                ) == 0
+            )
+            or (
+                self.supply_used > 15
+                and self.supply_left < 4
+                and self.already_pending(
+                    UnitTypeId.PYLON
+                ) < 2
+            )
+        ):
+            if self.can_afford(UnitTypeId.PYLON):
+                await self.build(
+                    UnitTypeId.PYLON,
+                    near=nexus,
+                )
+
+        # Train Probes until each Nexus has about 22.
+        if (
+            self.supply_workers
+            + self.already_pending(UnitTypeId.PROBE)
+            < self.townhalls.amount * 22
+            and nexus.is_idle
+        ):
+            if self.can_afford(UnitTypeId.PROBE):
+                nexus.train(UnitTypeId.PROBE)
+
+        # Build Gateway followed by Cybernetics Core.
+        if self.structures(UnitTypeId.PYLON).ready:
+            pylon = self.structures(
+                UnitTypeId.PYLON
+            ).ready.random
+
+            if self.structures(UnitTypeId.GATEWAY).ready:
+                if not self.structures(
+                    UnitTypeId.CYBERNETICSCORE
+                ):
+                    if (
+                        self.can_afford(
+                            UnitTypeId.CYBERNETICSCORE
+                        )
+                        and self.already_pending(
+                            UnitTypeId.CYBERNETICSCORE
+                        ) == 0
+                    ):
+                        await self.build(
+                            UnitTypeId.CYBERNETICSCORE,
+                            near=pylon,
+                        )
+            else:
+                if (
+                    self.can_afford(UnitTypeId.GATEWAY)
+                    and self.already_pending(
+                        UnitTypeId.GATEWAY
+                    ) == 0
+                ):
+                    await self.build(
+                        UnitTypeId.GATEWAY,
+                        near=pylon,
+                    )
+
+        # Build Assimilators at completed Nexuses.
+        if self.structures(UnitTypeId.CYBERNETICSCORE):
+            for base in self.townhalls.ready:
+                geysers = self.vespene_geyser.closer_than(
+                    15,
+                    base,
+                )
+
+                for geyser in geysers:
+                    if self.can_afford(
+                        UnitTypeId.ASSIMILATOR
+                    ):
+                        worker = self.select_build_worker(
+                            geyser.position
+                        )
+
+                        if worker is not None:
+                            has_assimilator = (
+                                self.gas_buildings
+                                and self.gas_buildings
+                                .closer_than(1, geyser)
+                            )
+
+                            if not has_assimilator:
+                                worker.build_gas(geyser)
+                                worker.stop(queue=True)
+
+        # Build two Stargates once the second Nexus is
+        # started or completed.
+        if (
+            self.structures(UnitTypeId.PYLON).ready
+            and self.structures(
+                UnitTypeId.CYBERNETICSCORE
+            ).ready
+        ):
+            pylon = self.structures(
+                UnitTypeId.PYLON
+            ).ready.random
+
+            base_total = (
+                self.townhalls.ready.amount
+                + self.already_pending(UnitTypeId.NEXUS)
+            )
+
+            stargate_total = (
+                self.structures(
+                    UnitTypeId.STARGATE
+                ).ready.amount
+                + self.already_pending(
+                    UnitTypeId.STARGATE
+                )
+            )
+
+            if (
+                base_total >= target_base_count
+                and stargate_total
+                < target_stargate_count
+                and self.can_afford(
+                    UnitTypeId.STARGATE
+                )
+            ):
+                await self.build(
+                    UnitTypeId.STARGATE,
+                    near=pylon,
+                )
+
+        # Reach two bases first. Do not build the third
+        # Nexus until the first Void Ray is complete.
+        current_and_pending_bases = (
+            self.townhalls.ready.amount
+            + self.already_pending(UnitTypeId.NEXUS)
         )
 
-        if enemy_main_destroyed:
-            if not hasattr(self, "sweep_index"):
-                self.sweep_index = 0
+        if (
+            current_and_pending_bases
+            < target_base_count
+        ):
+            if self.can_afford(UnitTypeId.NEXUS):
+                await self.expand_now()
 
-            sweep_target = self.expansion_locations_list[self.sweep_index]
+        elif (
+            voidrays.exists
+            and current_and_pending_bases < 3
+        ):
+            if self.can_afford(UnitTypeId.NEXUS):
+                await self.expand_now()
 
-            # Move the group to the next location after it reaches this one.
-            if all(vr.distance_to(sweep_target) < 10 for vr in voidrays):
-                self.sweep_index = (
-                    self.sweep_index + 1
-                ) % len(self.expansion_locations_list)
+    def manage_large_voidray_force(self, voidrays):
+        """
+        Keep five Void Rays at home and attack-move
+        every other Void Ray through the base sites.
+        """
+        defense_base = self.townhalls.ready.closest_to(
+            self.start_location
+        )
+        defense_point = defense_base.position
 
-                sweep_target = self.expansion_locations_list[
-                    self.sweep_index
+        if not hasattr(self, "voidray_defender_tags"):
+            self.voidray_defender_tags = set()
+
+        living_tags = {
+            voidray.tag for voidray in voidrays
+        }
+
+        self.voidray_defender_tags.intersection_update(
+            living_tags
+        )
+
+        defenders_needed = (
+            5 - len(self.voidray_defender_tags)
+        )
+
+        if defenders_needed > 0:
+            available_voidrays = sorted(
+                (
+                    voidray
+                    for voidray in voidrays
+                    if voidray.tag
+                    not in self.voidray_defender_tags
+                ),
+                key=lambda voidray: voidray.distance_to(
+                    defense_point
+                ),
+            )
+
+            self.voidray_defender_tags.update(
+                voidray.tag
+                for voidray in available_voidrays[
+                    :defenders_needed
                 ]
+            )
 
-            for vr in voidrays:
-                # attack(point) is an attack-move order.
-                vr.attack(sweep_target)
+        defenders = [
+            voidray
+            for voidray in voidrays
+            if voidray.tag
+            in self.voidray_defender_tags
+        ]
 
+        attackers = [
+            voidray
+            for voidray in voidrays
+            if voidray.tag
+            not in self.voidray_defender_tags
+        ]
+
+        visible_threats = (
+            self.enemy_units | self.enemy_structures
+        ).filter(
+            lambda enemy: (
+                enemy.can_be_attacked
+                and enemy.distance_to(defense_point) < 35
+            )
+        )
+
+        # Five defenders remain at home and attack
+        # visible nearby enemies.
+        for defender in defenders:
+            if visible_threats:
+                defender.attack(
+                    visible_threats.closest_to(defender)
+                )
+            else:
+                defender.attack(defense_point)
+
+        # All other Void Rays attack-move through every
+        # possible base location.
+        base_sites = sorted(
+            self.expansion_locations_list,
+            key=lambda location: location.distance_to(
+                self.enemy_start_locations[0]
+            ),
+        )
+
+        if not attackers or not base_sites:
             return
 
-        targets = (self.enemy_units | self.enemy_structures).filter(
-            lambda unit: unit.can_be_attacked
-        )
+        if not hasattr(
+            self,
+            "large_force_sweep_index",
+        ):
+            self.large_force_sweep_index = 0
+            self.large_force_order_index = {}
 
-        for vr in voidrays:
-            if vr.weapon_cooldown > 0:
-                vr(AbilityId.EFFECT_VOIDRAYPRISMATICALIGNMENT)
+        target = base_sites[
+            self.large_force_sweep_index
+        ]
 
-            if targets.exists:
-                vr.attack(targets.closest_to(vr))
-            else:
-                vr.attack(enemy_main)
+        if all(
+            attacker.distance_to(target) < 10
+            for attacker in attackers
+        ):
+            self.large_force_sweep_index = (
+                self.large_force_sweep_index + 1
+            ) % len(base_sites)
+
+            target = base_sites[
+                self.large_force_sweep_index
+            ]
+
+        for attacker in attackers:
+            old_target_index = (
+                self.large_force_order_index.get(
+                    attacker.tag
+                )
+            )
+
+            if (
+                old_target_index
+                != self.large_force_sweep_index
+            ):
+                attacker.attack(target)
+
+                self.large_force_order_index[
+                    attacker.tag
+                ] = self.large_force_sweep_index
+
+
+# Required by run_match.py and run_match.bat.
+SimpleProtossBot = ThreebaseVoidrayBot
+
+
+def main():
+    run_game(
+        maps.get("(2)CatalystLE"),
+        [
+            Bot(
+                Race.Protoss,
+                ThreebaseVoidrayBot(),
+            ),
+            Computer(
+                Race.Protoss,
+                Difficulty.Easy,
+            ),
+        ],
+        realtime=False,
+    )
 
 
 if __name__ == "__main__":
-    run_game(
-        maps.get("AbyssalReefLE"),
-        [
-            Bot(Race.Protoss, SimpleProtossBot()),
-            Computer(Race.Terran, Difficulty.Easy),
-        ],
-        realtime=True,
-    )
+    main()
